@@ -14,3 +14,4 @@
 .island-shell--immersive .island-bar{width:max-content;min-width:0;padding:0 10px}.island-shell--immersive .bar-summary{white-space:nowrap}
 .island-shell:not(.island-shell--expanded):not(.island-shell--immersive){width:236px}
 .island-bar{contain:paint;transform:translateZ(0);backface-visibility:hidden}.bar-summary__value{display:inline-block;transform:translateZ(0);backface-visibility:hidden;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
+.island-panel--window{width:520px;min-height:342px;margin:0;animation:reveal 160ms ease-out}

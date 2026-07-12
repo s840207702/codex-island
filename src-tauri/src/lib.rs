@@ -159,6 +159,25 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
     if let Some(parent) = path.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
     std::fs::write(path, serde_json::to_string(&SavedWindowPosition { x: position.x, y: position.y, user_moved: true }).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
+#[tauri::command]
+fn show_detail_panel(window: WebviewWindow) -> Result<(), String> {
+    let panel = window.app_handle().get_webview_window("panel").ok_or("未找到详情窗口")?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let main_position = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+    let main_size = window.outer_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+    let width = 520.0;
+    let position = LogicalPosition::new(main_position.x + (main_size.width - width) / 2.0, main_position.y + 55.0);
+    panel.set_always_on_top(true).map_err(|e| e.to_string())?;
+    panel.set_ignore_cursor_events(false).map_err(|e| e.to_string())?;
+    panel.set_position(Position::Logical(position)).map_err(|e| e.to_string())?;
+    panel.set_size(Size::Logical(LogicalSize::new(width, 342.0))).map_err(|e| e.to_string())?;
+    panel.show().map_err(|e| e.to_string())
+}
+#[tauri::command]
+fn hide_detail_panel(app: tauri::AppHandle) -> Result<(), String> {
+    if let Some(panel) = app.get_webview_window("panel") { panel.hide().map_err(|e| e.to_string())?; }
+    Ok(())
+}
 #[tauri::command] fn start_window_drag(window: WebviewWindow) -> Result<(), String> { window.start_dragging().map_err(|e| e.to_string()) }
 #[tauri::command] fn exit_app(app: tauri::AppHandle) { app.exit(0); }
 fn show_main_window(app: &tauri::AppHandle) { if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); } }
@@ -172,4 +191,4 @@ pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).set
     if let Some(icon) = app.default_window_icon() { tray = tray.icon(icon.clone()); }
     tray.on_menu_event(|app, event| match event.id.as_ref() { "show" => show_main_window(app), "hide" => { if let Some(window) = app.get_webview_window("main") { let _ = window.hide(); } }, "quit" => app.exit(0), _ => {} }).build(app)?;
     Ok(())
-}).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, get_immersive_state, save_window_position, start_window_drag, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
+}).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, get_immersive_state, save_window_position, show_detail_panel, hide_detail_panel, start_window_drag, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }

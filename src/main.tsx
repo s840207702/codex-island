@@ -1,6 +1,8 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { RefreshCw, Pin, X, CircleAlert, LoaderCircle, Github, Layers2 } from "lucide-react";
 import "./styles.css";
@@ -9,6 +11,7 @@ import "./overrides.css";
 type WindowData = { used_percent: number; remaining_percent: number; reset_after_seconds: number; reset_at?: number | string | null };
 type Usage = { primary: WindowData; secondary: WindowData; plan_type: string; plan_multiplier?: string | null; reset_credits?: number | null; reset_credit_expires_at?: number | string | null; credit_balance?: number | null; has_credits: boolean; fetched_at: string };
 type ImmersiveState = { active: boolean };
+const isDetailWindow = getCurrentWindow().label === "panel";
 
 const compactTime = (seconds: number) => {
   const minutes = Math.max(0, Math.floor(seconds / 60));
@@ -92,6 +95,7 @@ function App() {
   useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); }, [pinned]);
   useEffect(() => { localStorage.setItem("codex-island-opacity", String(opacity)); document.documentElement.style.setProperty("--island-opacity", String(opacity / 100)); }, [opacity]);
   useLayoutEffect(() => {
+    if (isDetailWindow) return;
     const target = expanded ? islandRef.current : barRef.current;
     if (!target) return;
     let frame = 0;
@@ -108,6 +112,7 @@ function App() {
     return () => { window.cancelAnimationFrame(frame); observer.disconnect(); };
   }, [expanded, immersive]);
   useEffect(() => {
+    if (isDetailWindow) return;
     const schedule = (active: boolean) => {
       if (immersiveCandidate.current === active) return;
       immersiveCandidate.current = active;
@@ -120,6 +125,20 @@ function App() {
     const check = () => { void invoke<ImmersiveState>("get_immersive_state").then((state) => schedule(state.active)).catch(() => schedule(false)); };
     check(); const timer = window.setInterval(check, 260);
     return () => window.clearInterval(timer);
+  }, []);
+  useEffect(() => {
+    if (isDetailWindow) return;
+    void invoke(expanded && !immersive ? "show_detail_panel" : "hide_detail_panel").catch(() => undefined);
+  }, [expanded, immersive]);
+  useEffect(() => {
+    if (isDetailWindow) return;
+    let disposeHover: (() => void) | undefined;
+    let disposePin: (() => void) | undefined;
+    void Promise.all([
+      listen<boolean>("codex-island-detail-hover", (event) => { if (event.payload) openIsland(); else closeIslandLater(); }),
+      listen<boolean>("codex-island-detail-pin", (event) => setPinned(event.payload)),
+    ]).then(([hover, pin]) => { disposeHover = hover; disposePin = pin; });
+    return () => { disposeHover?.(); disposePin?.(); };
   }, []);
   const topText = useMemo(() => usage ? `${Math.round(usage.primary.remaining_percent)}% · ${compactTime(usage.primary.reset_after_seconds)}` : "—", [usage]);
   const quit = () => invoke("exit_app").catch(() => undefined);
@@ -146,19 +165,20 @@ function App() {
     if (dragging.current) void invoke("save_window_position").catch(() => undefined);
     window.setTimeout(() => { dragOrigin.current = null; dragging.current = false; }, 0);
   };
-  return <main ref={islandRef} className={`island-shell ${expanded ? "island-shell--expanded" : ""} ${immersive ? "island-shell--immersive" : ""}`} onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onMouseDownCapture={beginPotentialDrag} onMouseMoveCapture={continuePotentialDrag} onMouseUpCapture={finishPotentialDrag}>
-    <button ref={barRef} className="island-bar" onClick={() => { if (!immersive && !dragging.current) setExpanded(v => !v); }} aria-label={immersive ? "沉浸模式额度" : "展开 Codex 额度"}>
-      <span className="bar-identity"><i className={`live-dot ${error ? "live-dot--error" : ""}`} /><span className="brand-orbit" aria-hidden="true" /><b>Codex</b></span><span className="bar-summary">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : <span className="bar-summary__value">{topText}</span>}</span>
-    </button>
-    {expanded && <article className={`island-panel ${closing ? "island-panel--closing" : ""}`}>
+  const detail = <article className={`island-panel ${isDetailWindow ? "island-panel--window" : ""} ${closing ? "island-panel--closing" : ""}`} onPointerEnter={() => { if (isDetailWindow) void emit("codex-island-detail-hover", true); }} onPointerLeave={() => { if (isDetailWindow) void emit("codex-island-detail-hover", false); }}>
       <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className="plan-label">{usage ? planLabel(usage.plan_type) : "—"}{usage?.plan_multiplier ? ` · ${usage.plan_multiplier}` : ""}</span></div><div className="controls">
-        <button className="icon-button icon-button--external" onClick={() => openExternal("https://github.com/s840207702/codex-island")} title="在 GitHub 查看 Codex Island" aria-label="在 GitHub 查看 Codex Island"><Github size={16} /></button><button className="icon-button icon-button--avatar" onClick={() => openExternal("https://www.feige177.com")} title="打开非哥工具箱" aria-label="打开非哥工具箱"><img src="/feige-toolbox-avatar.png" alt="" /></button><span className="control-divider" aria-hidden="true" /><button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => !v)} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button><button className={`icon-button icon-button--opacity ${settingsOpen ? "icon-button--selected" : ""}`} onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} onClick={() => setSettingsOpen(v => !v)} title="窗口透明度" aria-label="窗口透明度"><Layers2 size={17} strokeWidth={1.8} /></button>
+        <button className="icon-button icon-button--external" onClick={() => openExternal("https://github.com/s840207702/codex-island")} title="在 GitHub 查看 Codex Island" aria-label="在 GitHub 查看 Codex Island"><Github size={16} /></button><button className="icon-button icon-button--avatar" onClick={() => openExternal("https://www.feige177.com")} title="打开非哥工具箱" aria-label="打开非哥工具箱"><img src="/feige-toolbox-avatar.png" alt="" /></button><span className="control-divider" aria-hidden="true" /><button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => { const next = !v; if (isDetailWindow) void emit("codex-island-detail-pin", next); return next; })} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button><button className={`icon-button icon-button--opacity ${settingsOpen ? "icon-button--selected" : ""}`} onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} onClick={() => setSettingsOpen(v => !v)} title="窗口透明度" aria-label="窗口透明度"><Layers2 size={17} strokeWidth={1.8} /></button>
       </div></header>
       {settingsOpen && <section onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} className="settings-popover" aria-label="窗口透明度"><span>{opacity}%</span><input aria-label="窗口透明度" type="range" min="65" max="100" value={opacity} onChange={(event) => setOpacity(Number(event.target.value))} /></section>}
       {error && !usage ? <div className="error-state"><CircleAlert size={18} /><div><b>暂时无法同步</b><span>{error}</span></div><button onClick={refresh}>重试</button></div> : usage && <div className="overview"><Ring label="5 小时" window={usage.primary} tone="mint" period="short" /><Ring label="本周" window={usage.secondary} tone="amber" period="weekly" /></div>}
       <footer className="status-rail"><span className="status-source">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : <i className={`live-dot ${stale ? "live-dot--error" : ""}`} />}{stale ? "上次成功数据 · 重试中" : !loading && "OpenAI · 刚刚同步"}</span>{usage?.reset_credits != null && <em className="reset-credit">重置 {usage.reset_credits}{expiryText(usage.reset_credit_expires_at) ? ` · ${expiryText(usage.reset_credit_expires_at)?.replace("最早到期 ", "")}` : ""}</em>}<div><button className="icon-button" onClick={refresh} title="立即刷新"><RefreshCw size={16} className={loading ? "spinning" : ""} /></button><button className="icon-button" onClick={() => setExitConfirmOpen(true)} title="退出 Codex Island" aria-label="退出 Codex Island"><X size={16} /></button></div></footer>
       {exitConfirmOpen && <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="exit-dialog-title"><div className="confirm-dialog__card"><span className="confirm-dialog__eyebrow">退出确认</span><strong id="exit-dialog-title">要完全退出 Codex Island 吗？</strong><p>退出后将停止额度同步和桌面悬浮显示。</p><div><button className="text-action" onClick={() => setExitConfirmOpen(false)}>取消</button><button className="confirm-dialog__exit" onClick={quit}>退出应用</button></div></div></section>}
-    </article>}
+    </article>;
+  if (isDetailWindow) return detail;
+  return <main ref={islandRef} className={`island-shell ${immersive ? "island-shell--immersive" : ""}`} onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onMouseDownCapture={beginPotentialDrag} onMouseMoveCapture={continuePotentialDrag} onMouseUpCapture={finishPotentialDrag}>
+    <button ref={barRef} className="island-bar" onClick={() => { if (!immersive && !dragging.current) setExpanded(v => !v); }} aria-label={immersive ? "沉浸模式额度" : "展开 Codex 额度"}>
+      <span className="bar-identity"><i className={`live-dot ${error ? "live-dot--error" : ""}`} /><span className="brand-orbit" aria-hidden="true" /><b>Codex</b></span><span className="bar-summary">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : <span className="bar-summary__value">{topText}</span>}</span>
+    </button>
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<App />);
