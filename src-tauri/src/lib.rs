@@ -68,13 +68,9 @@ fn center_window(window: &WebviewWindow, width: f64, height: f64) -> Result<(), 
     window.set_size(Size::Logical(LogicalSize::new(width, height))).map_err(|e| e.to_string())
 }
 fn restore_window_position(window: &WebviewWindow, width: f64, height: f64) -> Result<(), String> {
-    let restored = position_file().and_then(|path| std::fs::read_to_string(path).ok()).and_then(|raw| serde_json::from_str::<SavedWindowPosition>(&raw).ok());
-    if let Some(saved) = restored.filter(|position| position.user_moved) {
-        // Migrate the legacy initial offset (6px native + 10px web padding) to the true top edge.
-        let y = if saved.y <= 16.0 { 0.0 } else { saved.y };
-        window.set_position(Position::Logical(LogicalPosition::new(saved.x, y))).map_err(|e| e.to_string())?;
-        window.set_size(Size::Logical(LogicalSize::new(width, height))).map_err(|e| e.to_string())
-    } else { center_window(window, width, height) }
+    // Position is deliberately session-only: every new launch starts at the
+    // top-center of the active display, while in-session dragging remains free.
+    center_window(window, width, height)
 }
 #[tauri::command]
 async fn fetch_usage() -> Result<Usage, String> {
@@ -194,6 +190,15 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
 #[tauri::command]
 fn show_detail_panel(window: WebviewWindow) -> Result<(), String> {
     let panel = window.app_handle().get_webview_window("panel").ok_or("未找到详情窗口")?;
+    position_detail_panel(&window, &panel)?;
+    panel.show().map_err(|e| e.to_string())?;
+    // The details webview spends most of its lifetime hidden. Re-sync its
+    // locale whenever it becomes visible so a missed background event can
+    // never leave the pill and panel in different languages.
+    sync_language_to_windows(window.app_handle(), &read_language());
+    Ok(())
+}
+fn position_detail_panel(window: &WebviewWindow, panel: &WebviewWindow) -> Result<(), String> {
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
     let main_position = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
     let main_size = window.outer_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
@@ -205,13 +210,7 @@ fn show_detail_panel(window: WebviewWindow) -> Result<(), String> {
     panel.set_always_on_top(true).map_err(|e| e.to_string())?;
     panel.set_ignore_cursor_events(false).map_err(|e| e.to_string())?;
     panel.set_position(Position::Logical(position)).map_err(|e| e.to_string())?;
-    panel.set_size(Size::Logical(LogicalSize::new(width, 351.0))).map_err(|e| e.to_string())?;
-    panel.show().map_err(|e| e.to_string())?;
-    // The details webview spends most of its lifetime hidden. Re-sync its
-    // locale whenever it becomes visible so a missed background event can
-    // never leave the pill and panel in different languages.
-    sync_language_to_windows(window.app_handle(), &read_language());
-    Ok(())
+    panel.set_size(Size::Logical(LogicalSize::new(width, 351.0))).map_err(|e| e.to_string())
 }
 #[tauri::command]
 fn hide_detail_panel(app: tauri::AppHandle) -> Result<(), String> {
@@ -240,12 +239,23 @@ fn is_cursor_over_island(app: tauri::AppHandle) -> Result<bool, String> {
 fn is_cursor_over_island() -> Result<bool, String> { Ok(false) }
 #[tauri::command] fn start_window_drag(window: WebviewWindow) -> Result<(), String> { window.start_dragging().map_err(|e| e.to_string()) }
 #[tauri::command] fn exit_app(app: tauri::AppHandle) { app.exit(0); }
-fn show_main_window(app: &tauri::AppHandle) { if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); } }
+fn show_main_window(app: &tauri::AppHandle) { if let Some(window) = app.get_webview_window("main") { let _ = center_window(&window, 236.0, 46.0); let _ = window.show(); let _ = window.set_focus(); } }
 pub fn run() { tauri::Builder::default()
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
     .setup(|app| {
-    if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = restore_window_position(&window, 236.0, 46.0); }
+    if let Some(window) = app.get_webview_window("main") {
+        let _ = window.set_always_on_top(true);
+        let _ = restore_window_position(&window, 236.0, 46.0);
+        let app_handle = app.handle().clone();
+        window.on_window_event(move |event| {
+            if matches!(event, tauri::WindowEvent::Moved(_)) {
+                if let (Some(main), Some(panel)) = (app_handle.get_webview_window("main"), app_handle.get_webview_window("panel")) {
+                    if panel.is_visible().unwrap_or(false) { let _ = position_detail_panel(&main, &panel); }
+                }
+            }
+        });
+    }
     let language = read_language();
     let labels = tray_labels(&language);
     let show = CheckMenuItem::with_id(app, "show", labels.show, true, true, None::<&str>)?;
