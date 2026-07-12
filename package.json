@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "tauri:mac": "tauri build --bundles app,dmg"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",

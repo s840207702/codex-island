@@ -503,6 +503,7 @@ dependencies = [
 name = "codex-island"
 version = "0.1.0"
 dependencies = [
+ "core-graphics",
  "dirs 5.0.1",
  "reqwest 0.12.28",
  "serde",

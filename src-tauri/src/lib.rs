@@ -234,7 +234,23 @@ fn is_cursor_over_island(app: tauri::AppHandle) -> Result<bool, String> {
         Ok(false)
     }
 }
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn is_cursor_over_island(app: tauri::AppHandle) -> Result<bool, String> {
+    use core_graphics::{event::CGEvent, event_source::{CGEventSource, CGEventSourceStateID}};
+    let source = CGEventSource::new(CGEventSourceStateID::CombinedSessionState).map_err(|_| "无法读取 macOS 鼠标状态")?;
+    let cursor = CGEvent::new(source).map_err(|_| "无法读取 macOS 鼠标状态")?.location();
+    for label in ["main", "panel"] {
+        let Some(window) = app.get_webview_window(label) else { continue; };
+        if !window.is_visible().unwrap_or(false) { continue; }
+        let scale = window.scale_factor().map_err(|e| e.to_string())?;
+        let position = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+        let size = window.outer_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+        if cursor.x >= position.x && cursor.x < position.x + size.width && cursor.y >= position.y && cursor.y < position.y + size.height { return Ok(true); }
+    }
+    Ok(false)
+}
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 #[tauri::command]
 fn is_cursor_over_island() -> Result<bool, String> { Ok(false) }
 #[tauri::command] fn start_window_drag(window: WebviewWindow) -> Result<(), String> { window.start_dragging().map_err(|e| e.to_string()) }
