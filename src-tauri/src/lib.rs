@@ -181,6 +181,26 @@ fn hide_detail_panel(app: tauri::AppHandle) -> Result<(), String> {
     if let Some(panel) = app.get_webview_window("panel") { panel.hide().map_err(|e| e.to_string())?; }
     Ok(())
 }
+#[cfg(target_os = "windows")]
+#[tauri::command]
+fn is_cursor_over_island(app: tauri::AppHandle) -> Result<bool, String> {
+    use windows::Win32::{Foundation::{POINT, RECT}, UI::WindowsAndMessaging::{GetCursorPos, GetWindowRect}};
+    unsafe {
+        let mut cursor = POINT::default();
+        GetCursorPos(&mut cursor).map_err(|e| e.to_string())?;
+        for label in ["main", "panel"] {
+            let Some(window) = app.get_webview_window(label) else { continue; };
+            if !window.is_visible().unwrap_or(false) { continue; }
+            let mut rect = RECT::default();
+            GetWindowRect(window.hwnd().map_err(|e| e.to_string())?, &mut rect).map_err(|e| e.to_string())?;
+            if cursor.x >= rect.left && cursor.x < rect.right && cursor.y >= rect.top && cursor.y < rect.bottom { return Ok(true); }
+        }
+        Ok(false)
+    }
+}
+#[cfg(not(target_os = "windows"))]
+#[tauri::command]
+fn is_cursor_over_island() -> Result<bool, String> { Ok(false) }
 #[tauri::command] fn start_window_drag(window: WebviewWindow) -> Result<(), String> { window.start_dragging().map_err(|e| e.to_string()) }
 #[tauri::command] fn exit_app(app: tauri::AppHandle) { app.exit(0); }
 fn show_main_window(app: &tauri::AppHandle) { if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); } }
@@ -194,4 +214,4 @@ pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).set
     if let Some(icon) = app.default_window_icon() { tray = tray.icon(icon.clone()); }
     tray.on_menu_event(|app, event| match event.id.as_ref() { "show" => show_main_window(app), "hide" => { if let Some(window) = app.get_webview_window("main") { let _ = window.hide(); } }, "quit" => app.exit(0), _ => {} }).build(app)?;
     Ok(())
-}).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, get_immersive_state, save_window_position, show_detail_panel, hide_detail_panel, start_window_drag, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
+}).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, get_immersive_state, save_window_position, show_detail_panel, hide_detail_panel, is_cursor_over_island, start_window_drag, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }

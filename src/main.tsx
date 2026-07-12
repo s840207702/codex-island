@@ -152,12 +152,34 @@ function App() {
     ]).then(([hover, pin]) => { disposeHover = hover; disposePin = pin; });
     return () => { disposeHover?.(); disposePin?.(); };
   }, []);
+  useEffect(() => {
+    if (isDetailWindow || !expanded || pinned || immersive) return;
+    const checkCursor = () => {
+      void invoke<boolean>("is_cursor_over_island").then((overIsland) => {
+        if (overIsland) { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); collapseTimer.current = null; }
+        else closeIslandLater();
+      }).catch(() => undefined);
+    };
+    checkCursor();
+    const timer = window.setInterval(checkCursor, 90);
+    return () => window.clearInterval(timer);
+  }, [expanded, pinned, immersive]);
   const topText = useMemo(() => usage ? `${Math.round(usage.primary.remaining_percent)}% · ${compactTime(usage.primary.reset_after_seconds)}` : "—", [usage]);
   const quit = () => invoke("exit_app").catch(() => undefined);
   const openExternal = (url: string) => { void openUrl(url).catch(() => undefined); };
 
   const openIsland = () => { if (immersive) return; if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); setClosing(false); void emit("codex-island-detail-closing", false); setExpanded(true); };
-  const closeIslandLater = () => { if (!pinned) collapseTimer.current = window.setTimeout(() => { setClosing(true); void emit("codex-island-detail-closing", true); shrinkTimer.current = window.setTimeout(() => { setExpanded(false); setClosing(false); shrinkTimer.current = null; }, 185); collapseTimer.current = null; }, 220); };
+  const closeIslandLater = () => {
+    if (pinned || collapseTimer.current || shrinkTimer.current) return;
+    collapseTimer.current = window.setTimeout(() => {
+      void invoke<boolean>("is_cursor_over_island").then((overIsland) => {
+        collapseTimer.current = null;
+        if (overIsland) return;
+        setClosing(true); void emit("codex-island-detail-closing", true);
+        shrinkTimer.current = window.setTimeout(() => { setExpanded(false); setClosing(false); shrinkTimer.current = null; }, 185);
+      }).catch(() => { collapseTimer.current = null; });
+    }, 220);
+  };
   const keepSettingsOpen = () => { if (settingsTimer.current) window.clearTimeout(settingsTimer.current); };
   const hideSettingsLater = () => { settingsTimer.current = window.setTimeout(() => { setSettingsOpen(false); settingsTimer.current = null; }, 480); };
   const beginPotentialDrag = (event: React.MouseEvent<HTMLElement>) => {
