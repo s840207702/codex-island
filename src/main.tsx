@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { RefreshCw, Pin, Eye, EyeOff, X, CircleAlert } from "lucide-react";
+import { RefreshCw, Pin, Eye, EyeOff, X, CircleAlert, SlidersHorizontal } from "lucide-react";
 import "./styles.css";
 import "./overrides.css";
 
@@ -40,6 +40,8 @@ function App() {
   const [pinned, setPinned] = useState(() => localStorage.getItem("quota-island-pinned") === "true");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [opacity, setOpacity] = useState(() => Number(localStorage.getItem("codex-island-opacity") ?? "100"));
   const [stale, setStale] = useState(false);
   const failures = useRef(0);
   const collapseTimer = useRef<number | null>(null);
@@ -55,6 +57,7 @@ function App() {
   useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); }, []);
   useEffect(() => { localStorage.setItem("quota-island-style", style); }, [style]);
   useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); invoke("set_pinned", { pinned }).catch(() => undefined); }, [pinned]);
+  useEffect(() => { localStorage.setItem("codex-island-opacity", String(opacity)); invoke("set_opacity", { opacity: opacity / 100 }).catch(() => undefined); }, [opacity]);
   useEffect(() => { invoke("set_expanded", { expanded }).catch(() => undefined); }, [expanded]);
   const topText = useMemo(() => usage ? `${Math.round(usage.primary.remaining_percent)}% · ${compactTime(usage.primary.reset_after_seconds)}` : "正在同步", [usage]);
   const close = () => invoke("hide_window").catch(() => undefined);
@@ -70,8 +73,9 @@ function App() {
     {expanded && <article className="island-panel">
       <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className="plan-label">{usage ? planLabel(usage.plan_type) : "—"}</span></div><div className="controls">
         <div className="style-switch" role="group" aria-label="显示风格"><button className={style === "overview" ? "selected" : ""} onClick={() => setStyle("overview")}>概览</button><button className={style === "focus" ? "selected" : ""} onClick={() => setStyle("focus")}>专注</button></div>
-        <button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => !v)} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button>
+        <button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => !v)} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button><button className={`icon-button ${settingsOpen ? "icon-button--selected" : ""}`} onClick={() => setSettingsOpen(v => !v)} title="显示设置"><SlidersHorizontal size={16} /></button>
       </div></header>
+      {settingsOpen && <section className="settings-popover"><div><b>窗口透明度</b><span>{opacity}%</span></div><input aria-label="窗口透明度" type="range" min="65" max="100" value={opacity} onChange={(event) => setOpacity(Number(event.target.value))} /><p>仅改变 Codex Island 的原生窗口，不影响桌面其他应用。</p></section>}
       {error && !usage ? <div className="error-state"><CircleAlert size={18} /><div><b>暂时无法同步</b><span>{error}</span></div><button onClick={refresh}>重试</button></div> : usage && (style === "overview" ?
         <div className="overview"><Ring label="5 小时" window={usage.primary} tone="mint" /><Ring label="本周" window={usage.secondary} tone="amber" /></div> :
         <div className="focus"><Ring label="5 小时额度" window={usage.primary} tone="blue" primary /><div className="weekly-line"><span className="weekly-line__dot" /><b>周额度</b><strong>{Math.round(usage.secondary.remaining_percent)}%</strong><em>{resetText(usage.secondary)}</em></div></div>)}
