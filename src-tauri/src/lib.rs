@@ -63,9 +63,13 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
     // Resize tightly around the actual visible island while preserving its visual center.
     // Immersive mode only changes the inner visual capsule. Keeping the native window
     // at the collapsed size preserves the island's screen anchor and avoids a left shift.
-    let (fallback_width, fallback_height) = if expanded && !immersive { (520.0, 397.0) } else if immersive { (148.0, 34.0) } else { (236.0, 46.0) };
-    let width = content_width.unwrap_or(fallback_width);
-    let height = content_height.unwrap_or(fallback_height);
+    let (width, height) = if immersive {
+        // The immersive window is click-through, so keep its full visual canvas intact.
+        (520.0, 64.0)
+    } else {
+        let (fallback_width, fallback_height) = if expanded { (520.0, 397.0) } else { (236.0, 46.0) };
+        (content_width.unwrap_or(fallback_width), content_height.unwrap_or(fallback_height))
+    };
     // The React layout uses CSS pixels. Logical sizing keeps that layout stable
     // at 100%, 125%, 150%, and 200% Windows DPI scaling.
     window.set_always_on_top(true).map_err(|e| e.to_string())?;
