@@ -147,10 +147,8 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
 }
 #[cfg(target_os = "windows")]
 #[tauri::command] fn get_immersive_state(_window: WebviewWindow) -> Result<ImmersiveState, String> {
-    use windows::Win32::{Foundation::RECT, Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITORINFO}, System::Threading::GetCurrentProcessId, UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsZoomed, GWL_EXSTYLE, GWL_STYLE, WS_CAPTION, WS_EX_TOPMOST}};
+    use windows::Win32::{Foundation::RECT, Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITORINFO}, System::Threading::GetCurrentProcessId, UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsZoomed, GWL_STYLE, WS_CAPTION}};
     unsafe {
-        let island_position = _window.outer_position().map_err(|e| e.to_string())?;
-        let island_size = _window.outer_size().map_err(|e| e.to_string())?;
         let foreground = GetForegroundWindow();
         if foreground.0.is_null() { return Ok(ImmersiveState { active: false }); }
         let mut foreground_pid = 0;
@@ -179,10 +177,9 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
         let style = GetWindowLongW(foreground, GWL_STYLE) as u32;
         let is_frameless = (style & WS_CAPTION.0) == 0;
         let is_full_screen = fills_monitor && (!IsZoomed(foreground).as_bool() || is_frameless);
-        let covers_island = foreground_rect.left <= island_position.x && foreground_rect.top <= island_position.y && foreground_rect.right >= island_position.x + island_size.width as i32 && foreground_rect.bottom >= island_position.y + island_size.height as i32;
-        let extended_style = GetWindowLongW(foreground, GWL_EXSTYLE) as u32;
-        let is_external_topmost_overlay = (extended_style & WS_EX_TOPMOST.0) != 0;
-        Ok(ImmersiveState { active: is_full_screen || (is_external_topmost_overlay && covers_island) })
+        // Normal maximized and topmost windows must never hide the island.
+        // Immersive mode is reserved for a genuine foreground full-screen surface.
+        Ok(ImmersiveState { active: is_full_screen })
     }
 }
 #[cfg(not(target_os = "windows"))]
