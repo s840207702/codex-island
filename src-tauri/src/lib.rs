@@ -23,7 +23,7 @@ unsafe extern "system" fn scan_immersive_window(hwnd: windows::Win32::Foundation
     let title_len = GetWindowTextW(hwnd, &mut title_buffer).max(0) as usize;
     let class_len = GetClassNameW(hwnd, &mut class_buffer).max(0) as usize;
     let identity = format!("{} {}", String::from_utf16_lossy(&title_buffer[..title_len]), String::from_utf16_lossy(&class_buffer[..class_len])).to_ascii_lowercase();
-    if ["progman", "workerw", "desktop", "fence"].iter().any(|term| identity.contains(term)) { return BOOL(1); }
+    if ["progman", "workerw", "desktop", "fence", "textinputhost", "windows 输入体验"].iter().any(|term| identity.contains(term)) { return BOOL(1); }
     let mut rect = RECT::default();
     if GetWindowRect(hwnd, &mut rect).is_err() { return BOOL(1); }
     let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
@@ -163,7 +163,7 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
         let window_identity = format!("{} {}", String::from_utf16_lossy(&title_buffer[..title_len]), String::from_utf16_lossy(&class_buffer[..class_len])).to_ascii_lowercase();
         // Desktop shells and desktop-fence overlays can own the foreground while a user
         // works normally. They are not immersive application surfaces.
-        if ["progman", "workerw", "desktop", "fence"].iter().any(|term| window_identity.contains(term)) {
+        if ["progman", "workerw", "desktop", "fence", "textinputhost", "windows 输入体验"].iter().any(|term| window_identity.contains(term)) {
             return Ok(ImmersiveState { active: false });
         }
         let mut foreground_rect = RECT::default();
