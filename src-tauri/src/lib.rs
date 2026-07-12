@@ -67,6 +67,8 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
     // The React layout uses CSS pixels. Logical sizing keeps that layout stable
     // at 100%, 125%, 150%, and 200% Windows DPI scaling.
     window.set_always_on_top(true).map_err(|e| e.to_string())?;
+    // Immersive mode is display-only: every pointer event goes to the app underneath.
+    window.set_ignore_cursor_events(immersive).map_err(|e| e.to_string())?;
     window.set_size(Size::Logical(LogicalSize::new(width as f64, height as f64))).map_err(|e| e.to_string())?;
     Ok(())
 }
