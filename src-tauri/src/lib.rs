@@ -166,11 +166,14 @@ fn show_detail_panel(window: WebviewWindow) -> Result<(), String> {
     let main_position = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
     let main_size = window.outer_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
     let width = 520.0;
-    let position = LogicalPosition::new(main_position.x + (main_size.width - width) / 2.0, main_position.y + 55.0);
+    // Start the native hit area directly below the pill. The visible panel keeps
+    // its 9px breathing gap inside this window, but the pointer never falls
+    // through an unhandled gap while travelling from pill to details.
+    let position = LogicalPosition::new(main_position.x + (main_size.width - width) / 2.0, main_position.y + 46.0);
     panel.set_always_on_top(true).map_err(|e| e.to_string())?;
     panel.set_ignore_cursor_events(false).map_err(|e| e.to_string())?;
     panel.set_position(Position::Logical(position)).map_err(|e| e.to_string())?;
-    panel.set_size(Size::Logical(LogicalSize::new(width, 342.0))).map_err(|e| e.to_string())?;
+    panel.set_size(Size::Logical(LogicalSize::new(width, 351.0))).map_err(|e| e.to_string())?;
     panel.show().map_err(|e| e.to_string())
 }
 #[tauri::command]
