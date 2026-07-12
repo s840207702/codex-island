@@ -13,3 +13,4 @@
 .island-bar{transition:width 240ms cubic-bezier(.2,.8,.2,1),height 240ms cubic-bezier(.2,.8,.2,1),background-color 240ms ease,border-color 240ms ease}.island-shell--immersive{width:520px!important}.island-shell--immersive .island-bar{width:188px;height:34px;background:rgba(9,13,18,.68);border:1px solid rgba(255,255,255,.08);justify-content:center}.island-shell--immersive .bar-summary{color:rgba(242,246,250,.9);font-weight:600;letter-spacing:.1px}
 .island-shell--immersive .island-bar{width:max-content;min-width:0;padding:0 10px}.island-shell--immersive .bar-summary{white-space:nowrap}
 .island-shell:not(.island-shell--expanded):not(.island-shell--immersive){width:236px}
+.island-bar{contain:paint;transform:translateZ(0);backface-visibility:hidden}.bar-summary__value{display:inline-block;transform:translateZ(0);backface-visibility:hidden;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}

@@ -148,7 +148,7 @@ function App() {
   };
   return <main ref={islandRef} className={`island-shell ${expanded ? "island-shell--expanded" : ""} ${immersive ? "island-shell--immersive" : ""}`} onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onMouseDownCapture={beginPotentialDrag} onMouseMoveCapture={continuePotentialDrag} onMouseUpCapture={finishPotentialDrag}>
     <button ref={barRef} className="island-bar" onClick={() => { if (!immersive && !dragging.current) setExpanded(v => !v); }} aria-label={immersive ? "沉浸模式额度" : "展开 Codex 额度"}>
-      <span className="bar-identity"><i className={`live-dot ${error ? "live-dot--error" : ""}`} /><span className="brand-orbit" aria-hidden="true" /><b>Codex</b></span><span className="bar-summary">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : topText}</span>
+      <span className="bar-identity"><i className={`live-dot ${error ? "live-dot--error" : ""}`} /><span className="brand-orbit" aria-hidden="true" /><b>Codex</b></span><span className="bar-summary">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : <span className="bar-summary__value">{topText}</span>}</span>
     </button>
     {expanded && <article className={`island-panel ${closing ? "island-panel--closing" : ""}`}>
       <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className="plan-label">{usage ? planLabel(usage.plan_type) : "—"}{usage?.plan_multiplier ? ` · ${usage.plan_multiplier}` : ""}</span></div><div className="controls">

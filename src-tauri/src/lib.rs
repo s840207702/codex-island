@@ -83,7 +83,7 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
         // Apply both together so the island never visibly jumps while resizing.
         #[cfg(target_os = "windows")]
         {
-            use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER};
+            use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_DEFERERASE, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER};
             let new_position = LogicalPosition::new(old_position.x + (old_size.width - width) / 2.0, old_position.y);
             let physical_position = new_position.to_physical::<i32>(scale);
             let physical_size = LogicalSize::new(width, height).to_physical::<u32>(scale);
@@ -95,7 +95,9 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
                     physical_position.y,
                     physical_size.width as i32,
                     physical_size.height as i32,
-                    SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER,
+                    // Keep the existing WebView frame while its bounds change;
+                    // otherwise transparent windows may briefly erase the bar text.
+                    SWP_DEFERERASE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER,
                 ).map_err(|e| e.to_string())?;
             }
         }
