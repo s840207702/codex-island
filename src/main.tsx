@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
@@ -67,6 +67,8 @@ function App() {
   const positionTimer = useRef<number | null>(null);
   const immersiveTimer = useRef<number | null>(null);
   const immersiveCandidate = useRef<boolean | null>(null);
+  const islandRef = useRef<HTMLElement>(null);
+  const barRef = useRef<HTMLButtonElement>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -80,7 +82,19 @@ function App() {
   // Pinning only controls auto-collapse. The island itself stays above other apps.
   useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); }, [pinned]);
   useEffect(() => { localStorage.setItem("codex-island-opacity", String(opacity)); document.documentElement.style.setProperty("--island-opacity", String(opacity / 100)); }, [opacity]);
-  useEffect(() => { invoke("set_expanded", { expanded, immersive }).catch(() => undefined); }, [expanded, immersive]);
+  useLayoutEffect(() => {
+    const target = expanded ? islandRef.current : barRef.current;
+    if (!target) return;
+    let frame = 0;
+    const syncWindowBounds = () => {
+      const bounds = target.getBoundingClientRect();
+      void invoke("set_expanded", { expanded, immersive, contentWidth: Math.ceil(bounds.width), contentHeight: Math.ceil(bounds.height) }).catch(() => undefined);
+    };
+    frame = window.requestAnimationFrame(syncWindowBounds);
+    const observer = new ResizeObserver(syncWindowBounds);
+    observer.observe(target);
+    return () => { window.cancelAnimationFrame(frame); observer.disconnect(); };
+  }, [expanded, immersive]);
   useEffect(() => {
     const schedule = (active: boolean) => {
       if (immersiveCandidate.current === active) return;
@@ -116,8 +130,8 @@ function App() {
     if (event.button !== 0 || target.closest("input, button:not(.island-bar), .confirm-dialog")) return;
     void invoke("start_window_drag");
   };
-  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""} ${immersive ? "island-shell--immersive" : ""}`} onMouseDownCapture={startWindowDrag}>
-    <button className="island-bar" onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onClick={() => { if (!immersive) setExpanded(v => !v); }} aria-label={immersive ? "沉浸模式额度" : "展开 Codex 额度"}>
+  return <main ref={islandRef} className={`island-shell ${expanded ? "island-shell--expanded" : ""} ${immersive ? "island-shell--immersive" : ""}`} onMouseDownCapture={startWindowDrag}>
+    <button ref={barRef} className="island-bar" onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onClick={() => { if (!immersive) setExpanded(v => !v); }} aria-label={immersive ? "沉浸模式额度" : "展开 Codex 额度"}>
       <span className="bar-identity"><i className={`live-dot ${error ? "live-dot--error" : ""}`} /><span className="brand-orbit" aria-hidden="true" /><b>Codex</b></span><span className="bar-summary">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : topText}</span>
     </button>
     {expanded && <article onPointerEnter={openIsland} onPointerLeave={closeIslandLater} className={`island-panel ${closing ? "island-panel--closing" : ""}`}>

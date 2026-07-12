@@ -59,17 +59,26 @@ async fn fetch_usage() -> Result<Usage, String> {
     Ok(Usage { primary: parse_window(limit.get("primary_window").ok_or("缺少短期额度")?)?, secondary: parse_window(limit.get("secondary_window").ok_or("缺少周额度")?)?, plan_type: body.get("plan_type").and_then(Value::as_str).unwrap_or("unknown").to_owned(), plan_multiplier: body.get("promo").and_then(|p| p.get("multiplier").or_else(|| p.get("rate_limit_multiplier"))).and_then(Value::as_str).map(str::to_owned), reset_credits: ["available_count", "availableCount", "remaining", "count"].iter().find_map(|key| reset.get(*key).and_then(Value::as_i64)), reset_credit_expires_at, credit_balance: credits.get("balance").and_then(Value::as_f64), has_credits: credits.get("has_credits").and_then(Value::as_bool).unwrap_or(false), fetched_at: chrono_like_now() })
 }
 fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string() }
-#[tauri::command] fn set_expanded(window: WebviewWindow, expanded: bool, immersive: bool) -> Result<(), String> {
-    // Resizing leaves the user-selected window position unchanged.
+#[tauri::command] fn set_expanded(window: WebviewWindow, expanded: bool, immersive: bool, content_width: Option<f64>, content_height: Option<f64>) -> Result<(), String> {
+    // Resize tightly around the actual visible island while preserving its visual center.
     // Immersive mode only changes the inner visual capsule. Keeping the native window
     // at the collapsed size preserves the island's screen anchor and avoids a left shift.
-    let (width, height) = if expanded && !immersive { (540, 420) } else { (540, 64) };
+    let (fallback_width, fallback_height) = if expanded && !immersive { (520.0, 397.0) } else if immersive { (148.0, 34.0) } else { (236.0, 46.0) };
+    let width = content_width.unwrap_or(fallback_width);
+    let height = content_height.unwrap_or(fallback_height);
     // The React layout uses CSS pixels. Logical sizing keeps that layout stable
     // at 100%, 125%, 150%, and 200% Windows DPI scaling.
     window.set_always_on_top(true).map_err(|e| e.to_string())?;
     // Immersive mode is display-only: every pointer event goes to the app underneath.
     window.set_ignore_cursor_events(immersive).map_err(|e| e.to_string())?;
-    window.set_size(Size::Logical(LogicalSize::new(width as f64, height as f64))).map_err(|e| e.to_string())?;
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let old_size = window.outer_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+    let old_position = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+    if (old_size.width - width).abs() > 0.5 || (old_size.height - height).abs() > 0.5 {
+        let new_position = LogicalPosition::new(old_position.x + (old_size.width - width) / 2.0, old_position.y);
+        window.set_position(Position::Logical(new_position)).map_err(|e| e.to_string())?;
+        window.set_size(Size::Logical(LogicalSize::new(width, height))).map_err(|e| e.to_string())?;
+    }
     Ok(())
 }
 #[cfg(target_os = "windows")]
