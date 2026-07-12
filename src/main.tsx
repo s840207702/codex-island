@@ -9,6 +9,7 @@ import "./overrides.css";
 
 type WindowData = { used_percent: number; remaining_percent: number; reset_after_seconds: number; reset_at?: number | string | null };
 type Usage = { primary: WindowData; secondary: WindowData; plan_type: string; plan_multiplier?: string | null; reset_credits?: number | null; reset_credit_expires_at?: number | string | null; credit_balance?: number | null; has_credits: boolean; fetched_at: string };
+type ImmersiveState = { active: boolean };
 
 const compactTime = (seconds: number) => {
   const minutes = Math.max(0, Math.floor(seconds / 60));
@@ -58,11 +59,14 @@ function App() {
   const [closing, setClosing] = useState(false);
   const [stale, setStale] = useState(false);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
+  const [immersive, setImmersive] = useState(false);
   const failures = useRef(0);
   const collapseTimer = useRef<number | null>(null);
   const shrinkTimer = useRef<number | null>(null);
   const settingsTimer = useRef<number | null>(null);
   const positionTimer = useRef<number | null>(null);
+  const immersiveTimer = useRef<number | null>(null);
+  const immersiveCandidate = useRef<boolean | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -72,11 +76,25 @@ function App() {
   };
   useEffect(() => { void refresh(); }, []);
   useEffect(() => { const ms = failures.current === 0 ? 60_000 : Math.min(30 * 60_000, 30_000 * 2 ** (failures.current - 1)); const timer = window.setTimeout(refresh, ms); return () => window.clearTimeout(timer); }, [usage, stale]);
-  useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); if (settingsTimer.current) window.clearTimeout(settingsTimer.current); if (positionTimer.current) window.clearTimeout(positionTimer.current); }, []);
+  useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); if (settingsTimer.current) window.clearTimeout(settingsTimer.current); if (positionTimer.current) window.clearTimeout(positionTimer.current); if (immersiveTimer.current) window.clearTimeout(immersiveTimer.current); }, []);
   // Pinning only controls auto-collapse. The island itself stays above other apps.
   useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); }, [pinned]);
-  useEffect(() => { localStorage.setItem("codex-island-opacity", String(opacity)); document.documentElement.style.setProperty("--island-opacity", String(opacity / 100)); }, [opacity]);
-  useEffect(() => { invoke("set_expanded", { expanded }).catch(() => undefined); }, [expanded]);
+  useEffect(() => { localStorage.setItem("codex-island-opacity", String(opacity)); document.documentElement.style.setProperty("--island-opacity", String((opacity / 100) * (immersive ? 0.42 : 1))); }, [opacity, immersive]);
+  useEffect(() => { invoke("set_expanded", { expanded, immersive }).catch(() => undefined); }, [expanded, immersive]);
+  useEffect(() => {
+    const schedule = (active: boolean) => {
+      if (immersiveCandidate.current === active) return;
+      immersiveCandidate.current = active;
+      if (immersiveTimer.current) window.clearTimeout(immersiveTimer.current);
+      immersiveTimer.current = window.setTimeout(() => {
+        setImmersive(active);
+        if (active) { setExpanded(false); setSettingsOpen(false); }
+      }, active ? 680 : 420);
+    };
+    const check = () => { void invoke<ImmersiveState>("get_immersive_state").then((state) => schedule(state.active)).catch(() => schedule(false)); };
+    check(); const timer = window.setInterval(check, 900);
+    return () => window.clearInterval(timer);
+  }, []);
   useEffect(() => {
     let unlisten: (() => void) | undefined;
     void getCurrentWindow().onMoved(() => {
@@ -89,7 +107,7 @@ function App() {
   const quit = () => invoke("exit_app").catch(() => undefined);
   const openExternal = (url: string) => { void openUrl(url).catch(() => undefined); };
 
-  const openIsland = () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); setClosing(false); setExpanded(true); };
+  const openIsland = () => { if (immersive) return; if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); setClosing(false); setExpanded(true); };
   const closeIslandLater = () => { if (!pinned) collapseTimer.current = window.setTimeout(() => { setClosing(true); shrinkTimer.current = window.setTimeout(() => { setExpanded(false); setClosing(false); shrinkTimer.current = null; }, 165); collapseTimer.current = null; }, 120); };
   const keepSettingsOpen = () => { if (settingsTimer.current) window.clearTimeout(settingsTimer.current); };
   const hideSettingsLater = () => { settingsTimer.current = window.setTimeout(() => { setSettingsOpen(false); settingsTimer.current = null; }, 480); };
@@ -98,8 +116,8 @@ function App() {
     if (event.button !== 0 || target.closest("input, button:not(.island-bar), .confirm-dialog")) return;
     void invoke("start_window_drag");
   };
-  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""}`} onMouseDownCapture={startWindowDrag}>
-    <button className="island-bar" onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onClick={() => setExpanded(v => !v)} aria-label="展开 Codex 额度">
+  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""} ${immersive ? "island-shell--immersive" : ""}`} onMouseDownCapture={startWindowDrag}>
+    <button className="island-bar" onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onClick={() => { if (!immersive) setExpanded(v => !v); }} aria-label={immersive ? "沉浸模式额度" : "展开 Codex 额度"}>
       <i className={`live-dot ${error ? "live-dot--error" : ""}`} />
       <span className="brand-orbit" aria-hidden="true" />
       <b>Codex</b><span className="bar-summary">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : topText}</span>

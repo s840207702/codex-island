@@ -1,12 +1,13 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{LogicalPosition, LogicalSize, Manager, Position, Size, WebviewWindow};
+use tauri::{menu::{Menu, MenuItem}, tray::TrayIconBuilder, LogicalPosition, LogicalSize, Manager, Position, Size, WebviewWindow};
 
 #[derive(Serialize)] struct Window { used_percent: f64, remaining_percent: f64, reset_after_seconds: i64, reset_at: Option<Value> }
 #[derive(Serialize)] struct Usage { primary: Window, secondary: Window, plan_type: String, plan_multiplier: Option<String>, reset_credits: Option<i64>, reset_credit_expires_at: Option<Value>, credit_balance: Option<f64>, has_credits: bool, fetched_at: String }
 #[derive(Deserialize)] struct Auth { tokens: Tokens }
 #[derive(Deserialize)] struct Tokens { access_token: String, account_id: Option<String> }
 #[derive(Serialize, Deserialize)] struct SavedWindowPosition { x: f64, y: f64 }
+#[derive(Serialize)] struct ImmersiveState { active: bool }
 
 fn position_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("window-position.json")) }
 
@@ -58,15 +59,37 @@ async fn fetch_usage() -> Result<Usage, String> {
     Ok(Usage { primary: parse_window(limit.get("primary_window").ok_or("缺少短期额度")?)?, secondary: parse_window(limit.get("secondary_window").ok_or("缺少周额度")?)?, plan_type: body.get("plan_type").and_then(Value::as_str).unwrap_or("unknown").to_owned(), plan_multiplier: body.get("promo").and_then(|p| p.get("multiplier").or_else(|| p.get("rate_limit_multiplier"))).and_then(Value::as_str).map(str::to_owned), reset_credits: ["available_count", "availableCount", "remaining", "count"].iter().find_map(|key| reset.get(*key).and_then(Value::as_i64)), reset_credit_expires_at, credit_balance: credits.get("balance").and_then(Value::as_f64), has_credits: credits.get("has_credits").and_then(Value::as_bool).unwrap_or(false), fetched_at: chrono_like_now() })
 }
 fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string() }
-#[tauri::command] fn set_expanded(window: WebviewWindow, expanded: bool) -> Result<(), String> {
+#[tauri::command] fn set_expanded(window: WebviewWindow, expanded: bool, immersive: bool) -> Result<(), String> {
     // Resizing leaves the user-selected window position unchanged.
-    let (width, height) = if expanded { (540, 420) } else { (540, 64) };
+    let (width, height) = if immersive { (188, 40) } else if expanded { (540, 420) } else { (540, 64) };
     // The React layout uses CSS pixels. Logical sizing keeps that layout stable
     // at 100%, 125%, 150%, and 200% Windows DPI scaling.
     window.set_always_on_top(true).map_err(|e| e.to_string())?;
     window.set_size(Size::Logical(LogicalSize::new(width as f64, height as f64))).map_err(|e| e.to_string())?;
     Ok(())
 }
+#[cfg(target_os = "windows")]
+#[tauri::command] fn get_immersive_state(window: WebviewWindow) -> Result<ImmersiveState, String> {
+    use windows::Win32::{Foundation::RECT, System::Threading::GetCurrentProcessId, UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId}};
+    unsafe {
+        let foreground = GetForegroundWindow();
+        if foreground.0.is_null() { return Ok(ImmersiveState { active: false }); }
+        let mut foreground_pid = 0;
+        GetWindowThreadProcessId(foreground, Some(&mut foreground_pid));
+        if foreground_pid == GetCurrentProcessId() { return Ok(ImmersiveState { active: false }); }
+        let mut foreground_rect = RECT::default();
+        if GetWindowRect(foreground, &mut foreground_rect).is_err() { return Ok(ImmersiveState { active: false }); }
+        let island_position = window.outer_position().map_err(|e| e.to_string())?;
+        let island_size = window.outer_size().map_err(|e| e.to_string())?;
+        let left = island_position.x;
+        let top = island_position.y;
+        let right = left + island_size.width as i32;
+        let bottom = top + island_size.height as i32;
+        Ok(ImmersiveState { active: foreground_rect.left <= left && foreground_rect.top <= top && foreground_rect.right >= right && foreground_rect.bottom >= bottom })
+    }
+}
+#[cfg(not(target_os = "windows"))]
+#[tauri::command] fn get_immersive_state() -> Result<ImmersiveState, String> { Ok(ImmersiveState { active: false }) }
 #[tauri::command] fn save_window_position(window: WebviewWindow) -> Result<(), String> {
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
     let position = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
@@ -76,4 +99,15 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
 }
 #[tauri::command] fn start_window_drag(window: WebviewWindow) -> Result<(), String> { window.start_dragging().map_err(|e| e.to_string()) }
 #[tauri::command] fn exit_app(app: tauri::AppHandle) { app.exit(0); }
-pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| { if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = restore_window_position(&window, 540.0, 64.0); } Ok(()) }).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, save_window_position, start_window_drag, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
+fn show_main_window(app: &tauri::AppHandle) { if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); } }
+pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| {
+    if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = restore_window_position(&window, 540.0, 64.0); }
+    let show = MenuItem::with_id(app, "show", "显示 Codex Island", true, None::<&str>)?;
+    let hide = MenuItem::with_id(app, "hide", "隐藏 Codex Island", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+    let menu = Menu::with_items(app, &[&show, &hide, &quit])?;
+    let mut tray = TrayIconBuilder::with_id("codex-island-tray").tooltip("Codex Island").menu(&menu);
+    if let Some(icon) = app.default_window_icon() { tray = tray.icon(icon.clone()); }
+    tray.on_menu_event(|app, event| match event.id.as_ref() { "show" => show_main_window(app), "hide" => { if let Some(window) = app.get_webview_window("main") { let _ = window.hide(); } }, "quit" => app.exit(0), _ => {} }).build(app)?;
+    Ok(())
+}).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, get_immersive_state, save_window_position, start_window_drag, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }

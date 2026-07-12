@@ -1,5 +1,6 @@
 :root{--island-opacity:1}.island-shell{opacity:var(--island-opacity)}.reset-credit { font-style: normal; color: #f5bf4b; margin-left: 5px; }
 .island-shell{padding-top:0}
+.island-bar{width:236px}.bar-summary{margin-left:18px}.island-shell--immersive{width:188px}.island-shell--immersive .island-bar{width:188px;height:34px;padding:0 12px;justify-content:center;cursor:default}.island-shell--immersive .live-dot,.island-shell--immersive .brand-orbit,.island-shell--immersive .island-bar b{display:none}.island-shell--immersive .bar-summary{margin:0;color:#e2e7ee;font-size:12px}
 .island-shell,.island-shell--expanded{width:520px;transition:none}.island-bar{margin-left:auto;margin-right:auto}
 .island-bar,.island-panel{border:none;box-shadow:none}.island-bar:hover{border-color:transparent}
 .sync-spinner{color:#93a0af;stroke-width:2.2}
