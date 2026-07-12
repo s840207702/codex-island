@@ -69,6 +69,8 @@ function App() {
   const immersiveCandidate = useRef<boolean | null>(null);
   const islandRef = useRef<HTMLElement>(null);
   const barRef = useRef<HTMLButtonElement>(null);
+  const dragOrigin = useRef<{ x: number; y: number } | null>(null);
+  const dragging = useRef(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -125,13 +127,22 @@ function App() {
   const closeIslandLater = () => { if (!pinned) collapseTimer.current = window.setTimeout(() => { setClosing(true); shrinkTimer.current = window.setTimeout(() => { setExpanded(false); setClosing(false); shrinkTimer.current = null; }, 165); collapseTimer.current = null; }, 120); };
   const keepSettingsOpen = () => { if (settingsTimer.current) window.clearTimeout(settingsTimer.current); };
   const hideSettingsLater = () => { settingsTimer.current = window.setTimeout(() => { setSettingsOpen(false); settingsTimer.current = null; }, 480); };
-  const startWindowDrag = (event: React.MouseEvent<HTMLElement>) => {
+  const beginPotentialDrag = (event: React.MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
     if (event.button !== 0 || target.closest("input, button:not(.island-bar), .confirm-dialog")) return;
+    dragOrigin.current = { x: event.clientX, y: event.clientY };
+    dragging.current = false;
+  };
+  const continuePotentialDrag = (event: React.MouseEvent<HTMLElement>) => {
+    const origin = dragOrigin.current;
+    if (!origin || dragging.current || (event.buttons & 1) === 0) return;
+    if (Math.hypot(event.clientX - origin.x, event.clientY - origin.y) < 4) return;
+    dragging.current = true;
     void invoke("start_window_drag");
   };
-  return <main ref={islandRef} className={`island-shell ${expanded ? "island-shell--expanded" : ""} ${immersive ? "island-shell--immersive" : ""}`} onMouseDownCapture={startWindowDrag}>
-    <button ref={barRef} className="island-bar" onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onClick={() => { if (!immersive) setExpanded(v => !v); }} aria-label={immersive ? "沉浸模式额度" : "展开 Codex 额度"}>
+  const finishPotentialDrag = () => { window.setTimeout(() => { dragOrigin.current = null; dragging.current = false; }, 0); };
+  return <main ref={islandRef} className={`island-shell ${expanded ? "island-shell--expanded" : ""} ${immersive ? "island-shell--immersive" : ""}`} onMouseDownCapture={beginPotentialDrag} onMouseMoveCapture={continuePotentialDrag} onMouseUpCapture={finishPotentialDrag}>
+    <button ref={barRef} className="island-bar" onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onClick={() => { if (!immersive && !dragging.current) setExpanded(v => !v); }} aria-label={immersive ? "沉浸模式额度" : "展开 Codex 额度"}>
       <span className="bar-identity"><i className={`live-dot ${error ? "live-dot--error" : ""}`} /><span className="brand-orbit" aria-hidden="true" /><b>Codex</b></span><span className="bar-summary">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : topText}</span>
     </button>
     {expanded && <article onPointerEnter={openIsland} onPointerLeave={closeIslandLater} className={`island-panel ${closing ? "island-panel--closing" : ""}`}>
