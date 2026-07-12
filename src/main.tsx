@@ -12,6 +12,18 @@ type WindowData = { used_percent: number; remaining_percent: number; reset_after
 type Usage = { primary: WindowData; secondary: WindowData; plan_type: string; plan_multiplier?: string | null; reset_credits?: number | null; reset_credit_expires_at?: number | string | null; credit_balance?: number | null; has_credits: boolean; fetched_at: string };
 type ImmersiveState = { active: boolean };
 type QuotaTemperature = { color: string; urgent: boolean; critical: boolean };
+type Locale = "zh-CN" | "en" | "ja" | "ko";
+type AppCopy = {
+  resetAfter: (time: string) => string; todayReset: (time: string) => string; tomorrowReset: (time: string) => string; willReset: (time: string) => string; earliestExpiry: (time: string) => string;
+  remaining: string; github: string; toolbox: string; pin: string; unpin: string; opacity: string; syncUnavailable: string; retry: string; fiveHours: string; thisWeek: string;
+  staleRetry: string; synced: string; resetCredits: string; refresh: string; exit: string; exitConfirm: string; exitQuestion: string; exitBody: string; cancel: string; exitApp: string; immersiveQuota: string; openQuota: string;
+};
+const translations: Record<Locale, AppCopy> = {
+  "zh-CN": { resetAfter: time => `${time} 后重置`, todayReset: time => `今天 ${time} 重置`, tomorrowReset: time => `明天 ${time} 重置`, willReset: time => `将于 ${time} 重置`, earliestExpiry: time => `最早到期 ${time}`, remaining: "剩余", github: "在 GitHub 查看 Codex Island", toolbox: "打开非哥工具箱", pin: "锁定常驻", unpin: "取消常驻", opacity: "窗口透明度", syncUnavailable: "暂时无法同步", retry: "重试", fiveHours: "5 小时", thisWeek: "本周", staleRetry: "上次成功数据 · 重试中", synced: "OpenAI · 刚刚同步", resetCredits: "重置", refresh: "立即刷新", exit: "退出 Codex Island", exitConfirm: "退出确认", exitQuestion: "要完全退出 Codex Island 吗？", exitBody: "退出后将停止额度同步和桌面悬浮显示。", cancel: "取消", exitApp: "退出应用", immersiveQuota: "沉浸模式额度", openQuota: "展开 Codex 额度" },
+  en: { resetAfter: time => `Resets in ${time}`, todayReset: time => `Resets today at ${time}`, tomorrowReset: time => `Resets tomorrow at ${time}`, willReset: time => `Resets ${time}`, earliestExpiry: time => `Earliest expiry ${time}`, remaining: "left", github: "View Codex Island on GitHub", toolbox: "Open Feige Toolbox", pin: "Keep expanded", unpin: "Stop keeping expanded", opacity: "Window opacity", syncUnavailable: "Unable to sync", retry: "Retry", fiveHours: "5 hours", thisWeek: "This week", staleRetry: "Last successful data · retrying", synced: "OpenAI · synced just now", resetCredits: "Resets", refresh: "Refresh now", exit: "Quit Codex Island", exitConfirm: "Confirm quit", exitQuestion: "Quit Codex Island completely?", exitBody: "Quota syncing and the floating island will stop.", cancel: "Cancel", exitApp: "Quit app", immersiveQuota: "Immersive quota", openQuota: "Open Codex quota" },
+  ja: { resetAfter: time => `${time}後にリセット`, todayReset: time => `今日 ${time} にリセット`, tomorrowReset: time => `明日 ${time} にリセット`, willReset: time => `${time} にリセット`, earliestExpiry: time => `最短有効期限 ${time}`, remaining: "残り", github: "GitHub で Codex Island を表示", toolbox: "非哥ツールボックスを開く", pin: "展開を固定", unpin: "固定を解除", opacity: "ウィンドウ透明度", syncUnavailable: "同期できません", retry: "再試行", fiveHours: "5時間", thisWeek: "今週", staleRetry: "前回のデータ · 再試行中", synced: "OpenAI · 同期済み", resetCredits: "リセット", refresh: "今すぐ更新", exit: "Codex Island を終了", exitConfirm: "終了の確認", exitQuestion: "Codex Island を完全に終了しますか？", exitBody: "使用量の同期とフローティング表示が停止します。", cancel: "キャンセル", exitApp: "アプリを終了", immersiveQuota: "没入モード使用量", openQuota: "Codex 使用量を開く" },
+  ko: { resetAfter: time => `${time} 후 재설정`, todayReset: time => `오늘 ${time} 재설정`, tomorrowReset: time => `내일 ${time} 재설정`, willReset: time => `${time} 재설정`, earliestExpiry: time => `가장 빠른 만료 ${time}`, remaining: "남음", github: "GitHub에서 Codex Island 보기", toolbox: "非哥 도구 상자 열기", pin: "펼침 고정", unpin: "고정 해제", opacity: "창 투명도", syncUnavailable: "동기화할 수 없음", retry: "다시 시도", fiveHours: "5시간", thisWeek: "이번 주", staleRetry: "마지막 성공 데이터 · 재시도 중", synced: "OpenAI · 방금 동기화", resetCredits: "재설정", refresh: "지금 새로고침", exit: "Codex Island 종료", exitConfirm: "종료 확인", exitQuestion: "Codex Island를 완전히 종료할까요?", exitBody: "사용량 동기화와 플로팅 표시가 중지됩니다.", cancel: "취소", exitApp: "앱 종료", immersiveQuota: "몰입 모드 사용량", openQuota: "Codex 사용량 열기" },
+};
 const isDetailWindow = getCurrentWindow().label === "panel";
 
 const compactTime = (seconds: number) => {
@@ -38,30 +50,30 @@ const resetDate = (window: WindowData) => {
   }
   return null;
 };
-const shortResetText = (window: WindowData) => {
-  const date = resetDate(window); if (!date) return `${compactTime(window.reset_after_seconds)} 后重置`;
+const shortResetText = (window: WindowData, locale: Locale, copy: AppCopy) => {
+  const date = resetDate(window); if (!date) return copy.resetAfter(compactTime(window.reset_after_seconds));
   const today = new Date(); today.setHours(0, 0, 0, 0); const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
-  const time = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
-  if (date >= today && date < tomorrow) return `今天 ${time} 重置`;
+  const time = new Intl.DateTimeFormat(locale, { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  if (date >= today && date < tomorrow) return copy.todayReset(time);
   const dayAfter = new Date(tomorrow); dayAfter.setDate(dayAfter.getDate() + 1);
-  if (date >= tomorrow && date < dayAfter) return `明天 ${time} 重置`;
-  return `将于 ${new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date)} 重置`;
+  if (date >= tomorrow && date < dayAfter) return copy.tomorrowReset(time);
+  return copy.willReset(new Intl.DateTimeFormat(locale, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date));
 };
-const weeklyResetText = (window: WindowData) => {
-  const date = resetDate(window); if (!date) return `${compactTime(window.reset_after_seconds)} 后重置`;
-  return `将于 ${new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date)} 重置`;
+const weeklyResetText = (window: WindowData, locale: Locale, copy: AppCopy) => {
+  const date = resetDate(window); if (!date) return copy.resetAfter(compactTime(window.reset_after_seconds));
+  return copy.willReset(new Intl.DateTimeFormat(locale, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date));
 };
 const planLabel = (plan: string) => ({ plus: "Plus", pro: "Pro", business: "Business", team: "Team", enterprise: "Enterprise" }[plan.toLowerCase()] ?? plan.replace(/(^|[_-])(\w)/g, (_, __, char) => char.toUpperCase()));
-const expiryText = (value?: number | string | null) => { if (!value) return null; const date = new Date(typeof value === "number" ? value * 1000 : value); return Number.isNaN(date.getTime()) ? null : `最早到期 ${new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date)}`; };
+const expiryText = (value: number | string | null | undefined, locale: Locale, copy: AppCopy) => { if (!value) return null; const date = new Date(typeof value === "number" ? value * 1000 : value); return Number.isNaN(date.getTime()) ? null : copy.earliestExpiry(new Intl.DateTimeFormat(locale, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date)); };
 
-function Ring({ label, window, period }: { label: string; window: WindowData; period: "short" | "weekly" }) {
+function Ring({ label, window, period, locale, copy }: { label: string; window: WindowData; period: "short" | "weekly"; locale: Locale; copy: AppCopy }) {
   const progress = Math.max(0, Math.min(100, window.remaining_percent));
   const temperature = quotaTemperature(progress);
   return <section className="ring-block">
     <div className={`ring ${temperature.urgent ? "ring--urgent" : ""}`} style={{ "--progress": `${progress * 3.6}deg`, "--ring": temperature.color, "--quota-color": temperature.color } as React.CSSProperties}>
-      <div className="ring__inside"><span>{label}</span><strong>{Math.round(progress)}%</strong><small>剩余</small></div>
+      <div className="ring__inside"><span>{label}</span><strong>{Math.round(progress)}%</strong><small>{copy.remaining}</small></div>
     </div>
-    <p>{period === "short" ? shortResetText(window) : weeklyResetText(window)}</p>
+    <p>{period === "short" ? shortResetText(window, locale, copy) : weeklyResetText(window, locale, copy)}</p>
   </section>;
 }
 
@@ -86,6 +98,11 @@ function App() {
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [immersive, setImmersive] = useState(false);
   const [panelClosing, setPanelClosing] = useState(false);
+  const [locale, setLocale] = useState<Locale>(() => {
+    const saved = localStorage.getItem("codex-island-language");
+    return saved === "en" || saved === "ja" || saved === "ko" ? saved : "zh-CN";
+  });
+  const copy = translations[locale];
   const failures = useRef(0);
   const collapseTimer = useRef<number | null>(null);
   const shrinkTimer = useRef<number | null>(null);
@@ -105,6 +122,17 @@ function App() {
     finally { setLoading(false); }
   };
   useEffect(() => { void refresh(); }, []);
+  useEffect(() => { void invoke<Locale>("get_app_language").then(setLocale).catch(() => undefined); }, []);
+  useEffect(() => {
+    let disposeLanguage: (() => void) | undefined;
+    let disposeRefresh: (() => void) | undefined;
+    void Promise.all([
+      listen<Locale>("codex-island-language-change", (event) => setLocale(event.payload)),
+      listen("codex-island-refresh", () => void refresh()),
+    ]).then(([languageListener, refreshListener]) => { disposeLanguage = languageListener; disposeRefresh = refreshListener; });
+    return () => { disposeLanguage?.(); disposeRefresh?.(); };
+  }, []);
+  useEffect(() => { localStorage.setItem("codex-island-language", locale); document.documentElement.lang = locale; }, [locale]);
   useEffect(() => {
     const blockContextMenu = (event: MouseEvent) => event.preventDefault();
     document.addEventListener("contextmenu", blockContextMenu);
@@ -230,16 +258,16 @@ function App() {
   };
   const detail = <article className={`island-panel ${isDetailWindow ? "island-panel--window" : ""} ${closing || panelClosing ? "island-panel--closing" : ""}`}>
       <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className="plan-label">{usage ? planLabel(usage.plan_type) : "—"}{usage?.plan_multiplier ? ` · ${usage.plan_multiplier}` : ""}</span></div><div className="controls">
-        <button className="icon-button icon-button--external" onClick={() => openExternal("https://github.com/s840207702/codex-island")} title="在 GitHub 查看 Codex Island" aria-label="在 GitHub 查看 Codex Island"><Github size={16} /></button><button className="icon-button icon-button--avatar" onClick={() => openExternal("https://www.feige177.com")} title="打开非哥工具箱" aria-label="打开非哥工具箱"><img src="/feige-toolbox-avatar.png" alt="" /></button><span className="control-divider" aria-hidden="true" /><button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => { const next = !v; if (isDetailWindow) void emit("codex-island-detail-pin", next); return next; })} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button><button className={`icon-button icon-button--opacity ${settingsOpen ? "icon-button--selected" : ""}`} onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} onClick={() => setSettingsOpen(v => !v)} title="窗口透明度" aria-label="窗口透明度"><Layers2 size={17} strokeWidth={1.8} /></button>
+        <button className="icon-button icon-button--external" onClick={() => openExternal("https://github.com/s840207702/codex-island")} title={copy.github} aria-label={copy.github}><Github size={16} /></button><button className="icon-button icon-button--avatar" onClick={() => openExternal("https://www.feige177.com")} title={copy.toolbox} aria-label={copy.toolbox}><img src="/feige-toolbox-avatar.png" alt="" /></button><span className="control-divider" aria-hidden="true" /><button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => { const next = !v; if (isDetailWindow) void emit("codex-island-detail-pin", next); return next; })} title={pinned ? copy.unpin : copy.pin}><Pin size={16} /></button><button className={`icon-button icon-button--opacity ${settingsOpen ? "icon-button--selected" : ""}`} onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} onClick={() => setSettingsOpen(v => !v)} title={copy.opacity} aria-label={copy.opacity}><Layers2 size={17} strokeWidth={1.8} /></button>
       </div></header>
-      {settingsOpen && <section onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} className="settings-popover" aria-label="窗口透明度"><span>{opacity}%</span><input aria-label="窗口透明度" type="range" min="65" max="100" value={opacity} onChange={(event) => changeOpacity(Number(event.target.value))} /></section>}
-      {error && !usage ? <div className="error-state"><CircleAlert size={18} /><div><b>暂时无法同步</b><span>{error}</span></div><button onClick={refresh}>重试</button></div> : usage && <div className="overview"><Ring label="5 小时" window={usage.primary} period="short" /><Ring label="本周" window={usage.secondary} period="weekly" /></div>}
-      <footer className="status-rail"><span className="status-source">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : <i className={`live-dot ${stale ? "live-dot--error" : ""}`} />}{stale ? "上次成功数据 · 重试中" : !loading && "OpenAI · 刚刚同步"}</span>{usage?.reset_credits != null && <em className="reset-credit">重置 {usage.reset_credits}{expiryText(usage.reset_credit_expires_at) ? ` · ${expiryText(usage.reset_credit_expires_at)?.replace("最早到期 ", "")}` : ""}</em>}<div><button className="icon-button" onClick={refresh} title="立即刷新"><RefreshCw size={16} className={loading ? "spinning" : ""} /></button><button className="icon-button" onClick={() => setExitConfirmOpen(true)} title="退出 Codex Island" aria-label="退出 Codex Island"><X size={16} /></button></div></footer>
-      {exitConfirmOpen && <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="exit-dialog-title"><div className="confirm-dialog__card"><span className="confirm-dialog__eyebrow">退出确认</span><strong id="exit-dialog-title">要完全退出 Codex Island 吗？</strong><p>退出后将停止额度同步和桌面悬浮显示。</p><div><button className="text-action" onClick={() => setExitConfirmOpen(false)}>取消</button><button className="confirm-dialog__exit" onClick={quit}>退出应用</button></div></div></section>}
+      {settingsOpen && <section onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} className="settings-popover" aria-label={copy.opacity}><span>{opacity}%</span><input aria-label={copy.opacity} type="range" min="65" max="100" value={opacity} onChange={(event) => changeOpacity(Number(event.target.value))} /></section>}
+      {error && !usage ? <div className="error-state"><CircleAlert size={18} /><div><b>{copy.syncUnavailable}</b><span>{error}</span></div><button onClick={refresh}>{copy.retry}</button></div> : usage && <div className="overview"><Ring label={copy.fiveHours} window={usage.primary} period="short" locale={locale} copy={copy} /><Ring label={copy.thisWeek} window={usage.secondary} period="weekly" locale={locale} copy={copy} /></div>}
+      <footer className="status-rail"><span className="status-source">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : <i className={`live-dot ${stale ? "live-dot--error" : ""}`} />}{stale ? copy.staleRetry : !loading && copy.synced}</span>{usage?.reset_credits != null && <em className="reset-credit">{copy.resetCredits} {usage.reset_credits}{expiryText(usage.reset_credit_expires_at, locale, copy) ? ` · ${expiryText(usage.reset_credit_expires_at, locale, copy)?.replace(/^.*?\s/, "")}` : ""}</em>}<div><button className="icon-button" onClick={refresh} title={copy.refresh}><RefreshCw size={16} className={loading ? "spinning" : ""} /></button><button className="icon-button" onClick={() => setExitConfirmOpen(true)} title={copy.exit} aria-label={copy.exit}><X size={16} /></button></div></footer>
+      {exitConfirmOpen && <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="exit-dialog-title"><div className="confirm-dialog__card"><span className="confirm-dialog__eyebrow">{copy.exitConfirm}</span><strong id="exit-dialog-title">{copy.exitQuestion}</strong><p>{copy.exitBody}</p><div><button className="text-action" onClick={() => setExitConfirmOpen(false)}>{copy.cancel}</button><button className="confirm-dialog__exit" onClick={quit}>{copy.exitApp}</button></div></div></section>}
     </article>;
   if (isDetailWindow) return <main className="detail-hitbox" onPointerEnter={() => void emit("codex-island-detail-hover", true)} onPointerLeave={() => void emit("codex-island-detail-hover", false)}>{detail}</main>;
   return <main ref={islandRef} className={`island-shell ${expanded ? "island-shell--active" : ""} ${immersive ? "island-shell--immersive" : ""}`} onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onMouseDownCapture={beginPotentialDrag} onMouseMoveCapture={continuePotentialDrag} onMouseUpCapture={finishPotentialDrag}>
-    <button ref={barRef} className="island-bar" onClick={() => { if (!immersive && !dragging.current) setExpanded(v => !v); }} aria-label={immersive ? "沉浸模式额度" : "展开 Codex 额度"}>
+    <button ref={barRef} className="island-bar" onClick={() => { if (!immersive && !dragging.current) setExpanded(v => !v); }} aria-label={immersive ? copy.immersiveQuota : copy.openQuota}>
       <span className="bar-identity"><i className={`live-dot quota-dot ${error ? "live-dot--error" : ""} ${topQuota?.temperature.critical ? "quota-dot--pulse" : ""}`} style={!error && topQuota ? { "--quota-color": topQuota.temperature.color } as React.CSSProperties : undefined} /><span className="brand-orbit" aria-hidden="true" /><b>Codex</b></span><span className="bar-summary">{topQuota ? <span className="bar-summary__value"><span className="quota-value" style={{ "--quota-color": topQuota.temperature.color } as React.CSSProperties}>{Math.round(topQuota.quota.remaining_percent)}%</span> · {compactTime(topQuota.quota.reset_after_seconds)}</span> : "—"}</span>
     </button>
   </main>;

@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{menu::{Menu, MenuItem}, tray::TrayIconBuilder, LogicalPosition, LogicalSize, Manager, Position, Size, WebviewWindow};
+use tauri::{menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu}, tray::TrayIconBuilder, Emitter, LogicalPosition, LogicalSize, Manager, Position, Size, WebviewWindow};
+use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
+use tauri_plugin_opener::OpenerExt;
 
 #[derive(Serialize)] struct Window { used_percent: f64, remaining_percent: f64, reset_after_seconds: i64, reset_at: Option<Value> }
 #[derive(Serialize)] struct Usage { primary: Window, secondary: Window, plan_type: String, plan_multiplier: Option<String>, reset_credits: Option<i64>, reset_credit_expires_at: Option<Value>, credit_balance: Option<f64>, has_credits: bool, fetched_at: String }
@@ -42,6 +44,19 @@ unsafe extern "system" fn scan_immersive_window(hwnd: windows::Win32::Foundation
 }
 
 fn position_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("window-position.json")) }
+fn language_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("language.txt")) }
+fn read_language() -> String { language_file().and_then(|path| std::fs::read_to_string(path).ok()).filter(|value| ["zh-CN", "en", "ja", "ko"].contains(&value.as_str())).unwrap_or_else(|| "zh-CN".to_owned()) }
+fn write_language(language: &str) {
+    if let Some(path) = language_file() { if let Some(parent) = path.parent() { let _ = std::fs::create_dir_all(parent); } let _ = std::fs::write(path, language); }
+}
+#[tauri::command] fn get_app_language() -> String { read_language() }
+struct TrayLabels { show: &'static str, refresh: &'static str, autostart: &'static str, language: &'static str, github: &'static str, toolbox: &'static str, quit: &'static str }
+fn tray_labels(language: &str) -> TrayLabels { match language {
+    "en" => TrayLabels { show: "Show Codex Island", refresh: "Refresh now", autostart: "Launch at startup", language: "Language", github: "GitHub repository", toolbox: "Feige Toolbox", quit: "Quit Codex Island" },
+    "ja" => TrayLabels { show: "Codex Island を表示", refresh: "今すぐ更新", autostart: "起動時に実行", language: "言語", github: "GitHub リポジトリ", toolbox: "非哥ツールボックス", quit: "Codex Island を終了" },
+    "ko" => TrayLabels { show: "Codex Island 표시", refresh: "지금 새로고침", autostart: "시작 시 실행", language: "언어", github: "GitHub 저장소", toolbox: "非哥 도구 상자", quit: "Codex Island 종료" },
+    _ => TrayLabels { show: "显示 Codex Island", refresh: "立即刷新", autostart: "开机时启动", language: "语言", github: "GitHub 仓库", toolbox: "非哥工具箱", quit: "退出 Codex Island" },
+} }
 
 fn parse_window(v: &Value) -> Result<Window, String> {
     let used = v.get("used_percent").and_then(Value::as_f64).unwrap_or(0.0).clamp(0.0, 100.0);
@@ -239,14 +254,61 @@ fn is_cursor_over_island() -> Result<bool, String> { Ok(false) }
 #[tauri::command] fn start_window_drag(window: WebviewWindow) -> Result<(), String> { window.start_dragging().map_err(|e| e.to_string()) }
 #[tauri::command] fn exit_app(app: tauri::AppHandle) { app.exit(0); }
 fn show_main_window(app: &tauri::AppHandle) { if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); } }
-pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| {
+pub fn run() { tauri::Builder::default()
+    .plugin(tauri_plugin_opener::init())
+    .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
+    .setup(|app| {
     if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = restore_window_position(&window, 236.0, 46.0); }
-    let show = MenuItem::with_id(app, "show", "显示 Codex Island", true, None::<&str>)?;
-    let hide = MenuItem::with_id(app, "hide", "隐藏 Codex Island", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
-    let menu = Menu::with_items(app, &[&show, &hide, &quit])?;
+    let language = read_language();
+    let labels = tray_labels(&language);
+    let show = CheckMenuItem::with_id(app, "show", labels.show, true, true, None::<&str>)?;
+    let refresh = MenuItem::with_id(app, "refresh", labels.refresh, true, None::<&str>)?;
+    let autostart = CheckMenuItem::with_id(app, "autostart", labels.autostart, true, app.autolaunch().is_enabled().unwrap_or(false), None::<&str>)?;
+    let lang_zh = CheckMenuItem::with_id(app, "lang-zh-CN", "简体中文", true, language == "zh-CN", None::<&str>)?;
+    let lang_en = CheckMenuItem::with_id(app, "lang-en", "English", true, language == "en", None::<&str>)?;
+    let lang_ja = CheckMenuItem::with_id(app, "lang-ja", "日本語", true, language == "ja", None::<&str>)?;
+    let lang_ko = CheckMenuItem::with_id(app, "lang-ko", "한국어", true, language == "ko", None::<&str>)?;
+    let language_menu = Submenu::with_items(app, labels.language, true, &[&lang_zh, &lang_en, &lang_ja, &lang_ko])?;
+    let github = MenuItem::with_id(app, "github", labels.github, true, None::<&str>)?;
+    let toolbox = MenuItem::with_id(app, "toolbox", labels.toolbox, true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", labels.quit, true, None::<&str>)?;
+    let separator_one = PredefinedMenuItem::separator(app)?;
+    let separator_two = PredefinedMenuItem::separator(app)?;
+    let separator_three = PredefinedMenuItem::separator(app)?;
+    let menu = Menu::with_items(app, &[&show, &refresh, &separator_one, &autostart, &language_menu, &separator_two, &github, &toolbox, &separator_three, &quit])?;
     let mut tray = TrayIconBuilder::with_id("codex-island-tray").tooltip("Codex Island").menu(&menu);
     tray = tray.icon(tauri::image::Image::from_bytes(include_bytes!("../icons/tray-avatar.png"))?);
-    tray.on_menu_event(|app, event| match event.id.as_ref() { "show" => show_main_window(app), "hide" => { if let Some(window) = app.get_webview_window("main") { let _ = window.hide(); } }, "quit" => app.exit(0), _ => {} }).build(app)?;
+    let show_item = show.clone();
+    let autostart_item = autostart.clone();
+    let language_menu_item = language_menu.clone();
+    let refresh_item = refresh.clone();
+    let github_item = github.clone();
+    let toolbox_item = toolbox.clone();
+    let quit_item = quit.clone();
+    let zh_item = lang_zh.clone(); let en_item = lang_en.clone(); let ja_item = lang_ja.clone(); let ko_item = lang_ko.clone();
+    tray.on_menu_event(move |app, event| match event.id.as_ref() {
+        "show" => {
+            if show_item.is_checked().unwrap_or(true) { show_main_window(app); }
+            else { if let Some(window) = app.get_webview_window("main") { let _ = window.hide(); } if let Some(panel) = app.get_webview_window("panel") { let _ = panel.hide(); } }
+        },
+        "refresh" => { let _ = app.emit("codex-island-refresh", ()); },
+        "autostart" => {
+            let enabled = autostart_item.is_checked().unwrap_or(false);
+            let result = if enabled { app.autolaunch().enable() } else { app.autolaunch().disable() };
+            if result.is_err() { let _ = autostart_item.set_checked(!enabled); }
+        },
+        "lang-zh-CN" | "lang-en" | "lang-ja" | "lang-ko" => {
+            let language = event.id.as_ref().trim_start_matches("lang-");
+            let _ = zh_item.set_checked(language == "zh-CN"); let _ = en_item.set_checked(language == "en"); let _ = ja_item.set_checked(language == "ja"); let _ = ko_item.set_checked(language == "ko");
+            write_language(language);
+            let labels = tray_labels(language);
+            let _ = show_item.set_text(labels.show); let _ = refresh_item.set_text(labels.refresh); let _ = autostart_item.set_text(labels.autostart); let _ = language_menu_item.set_text(labels.language); let _ = github_item.set_text(labels.github); let _ = toolbox_item.set_text(labels.toolbox); let _ = quit_item.set_text(labels.quit);
+            let _ = app.emit("codex-island-language-change", language.to_owned());
+        },
+        "github" => { let _ = app.opener().open_url("https://github.com/s840207702/codex-island", None::<&str>); },
+        "toolbox" => { let _ = app.opener().open_url("https://www.feige177.com", None::<&str>); },
+        "quit" => app.exit(0),
+        _ => {}
+    }).build(app)?;
     Ok(())
-}).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, get_immersive_state, save_window_position, show_detail_panel, hide_detail_panel, is_cursor_over_island, start_window_drag, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
+}).invoke_handler(tauri::generate_handler![fetch_usage, get_app_language, set_expanded, get_immersive_state, save_window_position, show_detail_panel, hide_detail_panel, is_cursor_over_island, start_window_drag, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
