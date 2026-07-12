@@ -1,0 +1,73 @@
+import React, { useEffect, useMemo, useState } from "react";
+import { createRoot } from "react-dom/client";
+import { invoke } from "@tauri-apps/api/core";
+import { getCurrentWindow } from "@tauri-apps/api/window";
+import { RefreshCw, Pin, Eye, EyeOff, X, CircleAlert } from "lucide-react";
+import "./styles.css";
+
+type WindowData = { used_percent: number; remaining_percent: number; reset_after_seconds: number; reset_at?: number | string | null };
+type Usage = { primary: WindowData; secondary: WindowData; credit_balance?: number | null; has_credits: boolean; fetched_at: string };
+type Style = "overview" | "focus";
+
+const compactTime = (seconds: number) => {
+  const minutes = Math.max(0, Math.floor(seconds / 60));
+  return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
+};
+const resetText = (window: WindowData) => {
+  if (window.reset_at) {
+    const date = new Date(typeof window.reset_at === "number" ? window.reset_at * 1000 : window.reset_at);
+    if (!Number.isNaN(date.getTime())) return `重置于 ${new Intl.DateTimeFormat("zh-CN", { weekday: "short", hour: "2-digit", minute: "2-digit" }).format(date)}`;
+  }
+  return `${compactTime(window.reset_after_seconds)} 后重置`;
+};
+
+function Ring({ label, window, tone, primary = false }: { label: string; window: WindowData; tone: "mint" | "amber" | "blue"; primary?: boolean }) {
+  const progress = Math.max(0, Math.min(100, window.remaining_percent));
+  return <section className={`ring-block ${primary ? "ring-block--hero" : ""}`}>
+    <div className={`ring ring--${tone}`} style={{ "--progress": `${progress * 3.6}deg` } as React.CSSProperties}>
+      <div className="ring__inside"><span>{label}</span><strong>{Math.round(progress)}%</strong><small>剩余</small></div>
+    </div>
+    <p>{resetText(window)}</p>
+  </section>;
+}
+
+function App() {
+  const [usage, setUsage] = useState<Usage | null>(null);
+  const [style, setStyle] = useState<Style>(() => (localStorage.getItem("quota-island-style") as Style) || "overview");
+  const [expanded, setExpanded] = useState(true);
+  const [pinned, setPinned] = useState(() => localStorage.getItem("quota-island-pinned") === "true");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = async () => {
+    setLoading(true); setError(null);
+    try { setUsage(await invoke<Usage>("fetch_usage")); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    finally { setLoading(false); }
+  };
+  useEffect(() => { refresh(); const timer = window.setInterval(refresh, 60_000); return () => clearInterval(timer); }, []);
+  useEffect(() => { localStorage.setItem("quota-island-style", style); }, [style]);
+  useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); invoke("set_pinned", { pinned }).catch(() => undefined); }, [pinned]);
+  useEffect(() => { invoke("set_expanded", { expanded }).catch(() => undefined); }, [expanded]);
+  const topText = useMemo(() => usage ? `${Math.round(usage.primary.remaining_percent)}% · ${compactTime(usage.primary.reset_after_seconds)}` : "正在同步", [usage]);
+  const close = () => invoke("hide_window").catch(() => undefined);
+
+  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""}`} onMouseLeave={() => !pinned && setExpanded(false)} onMouseEnter={() => setExpanded(true)}>
+    <button className="island-bar" onMouseDown={(event) => { if (event.button === 0) getCurrentWindow().startDragging(); }} onClick={() => setExpanded(v => !v)} aria-label="展开 Codex 额度">
+      <i className={`live-dot ${error ? "live-dot--error" : ""}`} />
+      <span className="brand-orbit" aria-hidden="true" />
+      <b>Codex</b><span className="bar-summary">{topText}</span>
+    </button>
+    {expanded && <article className="island-panel">
+      <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex</strong></div><div className="controls">
+        <div className="style-switch" role="group" aria-label="显示风格"><button className={style === "overview" ? "selected" : ""} onClick={() => setStyle("overview")}>概览</button><button className={style === "focus" ? "selected" : ""} onClick={() => setStyle("focus")}>专注</button></div>
+        <button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => !v)} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button>
+      </div></header>
+      {error ? <div className="error-state"><CircleAlert size={18} /><div><b>暂时无法同步</b><span>{error}</span></div><button onClick={refresh}>重试</button></div> : usage && (style === "overview" ?
+        <div className="overview"><Ring label="5 小时" window={usage.primary} tone="mint" /><Ring label="本周" window={usage.secondary} tone="amber" /></div> :
+        <div className="focus"><Ring label="5 小时额度" window={usage.primary} tone="blue" primary /><div className="weekly-line"><span className="weekly-line__dot" /><b>周额度</b><strong>{Math.round(usage.secondary.remaining_percent)}%</strong><em>{resetText(usage.secondary)}</em></div></div>)}
+      <footer><span><i className="live-dot" />{loading ? "正在同步服务端…" : "刚刚同步 · 来源：OpenAI"}</span><div><button className="text-action" onClick={() => setPinned(v => !v)}>{pinned ? <><Eye size={14} /> 常驻</> : <><EyeOff size={14} /> 自动收起</>}</button><button className="icon-button" onClick={refresh} title="立即刷新"><RefreshCw size={16} className={loading ? "spinning" : ""} /></button><button className="icon-button" onClick={close} title="隐藏"><X size={16} /></button></div></footer>
+    </article>}
+  </main>;
+}
+createRoot(document.getElementById("root")!).render(<App />);
