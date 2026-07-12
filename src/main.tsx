@@ -1,12 +1,13 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { RefreshCw, Pin, Eye, EyeOff, X, CircleAlert } from "lucide-react";
 import "./styles.css";
+import "./overrides.css";
 
 type WindowData = { used_percent: number; remaining_percent: number; reset_after_seconds: number; reset_at?: number | string | null };
-type Usage = { primary: WindowData; secondary: WindowData; plan_type: string; credit_balance?: number | null; has_credits: boolean; fetched_at: string };
+type Usage = { primary: WindowData; secondary: WindowData; plan_type: string; reset_credits?: number | null; credit_balance?: number | null; has_credits: boolean; fetched_at: string };
 type Style = "overview" | "focus";
 
 const compactTime = (seconds: number) => {
@@ -35,25 +36,32 @@ function Ring({ label, window, tone, primary = false }: { label: string; window:
 function App() {
   const [usage, setUsage] = useState<Usage | null>(null);
   const [style, setStyle] = useState<Style>(() => (localStorage.getItem("quota-island-style") as Style) || "overview");
-  const [expanded, setExpanded] = useState(true);
+  const [expanded, setExpanded] = useState(false);
   const [pinned, setPinned] = useState(() => localStorage.getItem("quota-island-pinned") === "true");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [stale, setStale] = useState(false);
+  const failures = useRef(0);
+  const collapseTimer = useRef<number | null>(null);
 
   const refresh = async () => {
-    setLoading(true); setError(null);
-    try { setUsage(await invoke<Usage>("fetch_usage")); }
-    catch (e) { setError(e instanceof Error ? e.message : String(e)); }
+    setLoading(true);
+    try { setUsage(await invoke<Usage>("fetch_usage")); setError(null); setStale(false); failures.current = 0; }
+    catch (e) { failures.current += 1; setError(e instanceof Error ? e.message : String(e)); setStale(Boolean(usage)); }
     finally { setLoading(false); }
   };
-  useEffect(() => { refresh(); const timer = window.setInterval(refresh, 60_000); return () => clearInterval(timer); }, []);
+  useEffect(() => { void refresh(); }, []);
+  useEffect(() => { const ms = failures.current === 0 ? 60_000 : Math.min(30 * 60_000, 30_000 * 2 ** (failures.current - 1)); const timer = window.setTimeout(refresh, ms); return () => window.clearTimeout(timer); }, [usage, stale]);
+  useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); }, []);
   useEffect(() => { localStorage.setItem("quota-island-style", style); }, [style]);
   useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); invoke("set_pinned", { pinned }).catch(() => undefined); }, [pinned]);
   useEffect(() => { invoke("set_expanded", { expanded }).catch(() => undefined); }, [expanded]);
   const topText = useMemo(() => usage ? `${Math.round(usage.primary.remaining_percent)}% · ${compactTime(usage.primary.reset_after_seconds)}` : "正在同步", [usage]);
   const close = () => invoke("hide_window").catch(() => undefined);
 
-  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""}`} onMouseLeave={() => !pinned && setExpanded(false)} onMouseEnter={() => setExpanded(true)}>
+  const openIsland = () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); setExpanded(true); };
+  const closeIslandLater = () => { if (!pinned) collapseTimer.current = window.setTimeout(() => setExpanded(false), 420); };
+  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""}`} onMouseLeave={closeIslandLater} onMouseEnter={openIsland}>
     <button className="island-bar" onMouseDown={(event) => { if (event.button === 0) getCurrentWindow().startDragging(); }} onClick={() => setExpanded(v => !v)} aria-label="展开 Codex 额度">
       <i className={`live-dot ${error ? "live-dot--error" : ""}`} />
       <span className="brand-orbit" aria-hidden="true" />
@@ -64,10 +72,10 @@ function App() {
         <div className="style-switch" role="group" aria-label="显示风格"><button className={style === "overview" ? "selected" : ""} onClick={() => setStyle("overview")}>概览</button><button className={style === "focus" ? "selected" : ""} onClick={() => setStyle("focus")}>专注</button></div>
         <button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => !v)} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button>
       </div></header>
-      {error ? <div className="error-state"><CircleAlert size={18} /><div><b>暂时无法同步</b><span>{error}</span></div><button onClick={refresh}>重试</button></div> : usage && (style === "overview" ?
+      {error && !usage ? <div className="error-state"><CircleAlert size={18} /><div><b>暂时无法同步</b><span>{error}</span></div><button onClick={refresh}>重试</button></div> : usage && (style === "overview" ?
         <div className="overview"><Ring label="5 小时" window={usage.primary} tone="mint" /><Ring label="本周" window={usage.secondary} tone="amber" /></div> :
         <div className="focus"><Ring label="5 小时额度" window={usage.primary} tone="blue" primary /><div className="weekly-line"><span className="weekly-line__dot" /><b>周额度</b><strong>{Math.round(usage.secondary.remaining_percent)}%</strong><em>{resetText(usage.secondary)}</em></div></div>)}
-      <footer><span><i className="live-dot" />{loading ? "正在同步服务端…" : "刚刚同步 · 来源：OpenAI"}</span><div><button className="text-action" onClick={() => setPinned(v => !v)}>{pinned ? <><Eye size={14} /> 常驻</> : <><EyeOff size={14} /> 自动收起</>}</button><button className="icon-button" onClick={refresh} title="立即刷新"><RefreshCw size={16} className={loading ? "spinning" : ""} /></button><button className="icon-button" onClick={close} title="隐藏"><X size={16} /></button></div></footer>
+      <footer><span><i className={`live-dot ${stale ? "live-dot--error" : ""}`} />{loading ? "正在同步服务端…" : stale ? "显示上次成功数据 · 正在重试" : "刚刚同步 · 来源：OpenAI"}{usage?.reset_credits != null && <em className="reset-credit">重置机会 {usage.reset_credits}</em>}</span><div><button className="text-action" onClick={() => setPinned(v => !v)}>{pinned ? <><Eye size={14} /> 常驻</> : <><EyeOff size={14} /> 自动收起</>}</button><button className="icon-button" onClick={refresh} title="立即刷新"><RefreshCw size={16} className={loading ? "spinning" : ""} /></button><button className="icon-button" onClick={close} title="隐藏"><X size={16} /></button></div></footer>
     </article>}
   </main>;
 }
