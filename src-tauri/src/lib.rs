@@ -55,5 +55,5 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
     window.set_size(Size::Logical(LogicalSize::new(width as f64, height as f64))).map_err(|e| e.to_string())?;
     Ok(())
 }
-#[tauri::command] fn hide_window(window: WebviewWindow) -> Result<(), String> { window.hide().map_err(|e| e.to_string()) }
-pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| { if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = center_window(&window, 540.0, 64.0); } Ok(()) }).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, hide_window]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
+#[tauri::command] fn exit_app(app: tauri::AppHandle) { app.exit(0); }
+pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| { if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = center_window(&window, 540.0, 64.0); } Ok(()) }).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
