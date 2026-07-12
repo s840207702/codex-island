@@ -87,23 +87,42 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
 }
 #[cfg(target_os = "windows")]
 #[tauri::command] fn get_immersive_state(_window: WebviewWindow) -> Result<ImmersiveState, String> {
-    use windows::Win32::{Foundation::RECT, Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITORINFO}, System::Threading::GetCurrentProcessId, UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId}};
+    use windows::Win32::{Foundation::RECT, Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITORINFO}, System::Threading::GetCurrentProcessId, UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsZoomed, GWL_EXSTYLE, GWL_STYLE, WS_CAPTION, WS_EX_TOPMOST}};
     unsafe {
         let foreground = GetForegroundWindow();
         if foreground.0.is_null() { return Ok(ImmersiveState { active: false }); }
         let mut foreground_pid = 0;
         GetWindowThreadProcessId(foreground, Some(&mut foreground_pid));
         if foreground_pid == GetCurrentProcessId() { return Ok(ImmersiveState { active: false }); }
+        let mut title_buffer = [0u16; 256];
+        let mut class_buffer = [0u16; 256];
+        let title_len = GetWindowTextW(foreground, &mut title_buffer).max(0) as usize;
+        let class_len = GetClassNameW(foreground, &mut class_buffer).max(0) as usize;
+        let window_identity = format!("{} {}", String::from_utf16_lossy(&title_buffer[..title_len]), String::from_utf16_lossy(&class_buffer[..class_len])).to_ascii_lowercase();
+        // Desktop shells and desktop-fence overlays can own the foreground while a user
+        // works normally. They are not immersive application surfaces.
+        if ["progman", "workerw", "desktop", "fence"].iter().any(|term| window_identity.contains(term)) {
+            return Ok(ImmersiveState { active: false });
+        }
         let mut foreground_rect = RECT::default();
         if GetWindowRect(foreground, &mut foreground_rect).is_err() { return Ok(ImmersiveState { active: false }); }
         let monitor = MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST);
         let mut monitor_info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
         if !GetMonitorInfoW(monitor, &mut monitor_info).as_bool() { return Ok(ImmersiveState { active: false }); }
         let screen = monitor_info.rcMonitor;
-        // Ordinary maximized windows are deliberately excluded: only a true full-screen
-        // foreground surface should make the island reduce itself.
+        // A maximized framed window is still normal work. Full-screen means either an
+        // unmaximized borderless surface or a maximized surface with its caption removed.
         let tolerance = 2;
-        Ok(ImmersiveState { active: foreground_rect.left <= screen.left + tolerance && foreground_rect.top <= screen.top + tolerance && foreground_rect.right >= screen.right - tolerance && foreground_rect.bottom >= screen.bottom - tolerance })
+        let fills_monitor = foreground_rect.left <= screen.left + tolerance && foreground_rect.top <= screen.top + tolerance && foreground_rect.right >= screen.right - tolerance && foreground_rect.bottom >= screen.bottom - tolerance;
+        let style = GetWindowLongW(foreground, GWL_STYLE) as u32;
+        let is_frameless = (style & WS_CAPTION.0) == 0;
+        let is_full_screen = fills_monitor && (!IsZoomed(foreground).as_bool() || is_frameless);
+        let island_position = _window.outer_position().map_err(|e| e.to_string())?;
+        let island_size = _window.outer_size().map_err(|e| e.to_string())?;
+        let covers_island = foreground_rect.left <= island_position.x && foreground_rect.top <= island_position.y && foreground_rect.right >= island_position.x + island_size.width as i32 && foreground_rect.bottom >= island_position.y + island_size.height as i32;
+        let extended_style = GetWindowLongW(foreground, GWL_EXSTYLE) as u32;
+        let is_external_topmost_overlay = (extended_style & WS_EX_TOPMOST.0) != 0;
+        Ok(ImmersiveState { active: is_full_screen || (is_external_topmost_overlay && covers_island) })
     }
 }
 #[cfg(not(target_os = "windows"))]
