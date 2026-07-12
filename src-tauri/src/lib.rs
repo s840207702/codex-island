@@ -48,7 +48,7 @@ async fn fetch_usage() -> Result<Usage, String> {
 fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string() }
 #[tauri::command] fn set_expanded(window: WebviewWindow, expanded: bool) -> Result<(), String> {
     // The horizontal anchor never changes: only the height grows or collapses.
-    let (width, height) = if expanded { (540, 446) } else { (540, 64) };
+    let (width, height) = if expanded { (540, 420) } else { (540, 64) };
     // The React layout uses CSS pixels. Logical sizing keeps that layout stable
     // at 100%, 125%, 150%, and 200% Windows DPI scaling.
     window.set_always_on_top(true).map_err(|e| e.to_string())?;

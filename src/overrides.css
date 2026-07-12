@@ -1,5 +1,6 @@
 :root{--island-opacity:1}.island-shell{opacity:var(--island-opacity)}.reset-credit { font-style: normal; color: #f5bf4b; margin-left: 5px; }
 .island-shell,.island-shell--expanded{width:520px;transition:none}.island-bar{margin-left:auto;margin-right:auto}
 .sync-spinner{color:#93a0af;stroke-width:2.2}
+.status-rail{gap:9px;min-width:0}.status-source{display:flex;align-items:center;gap:8px;white-space:nowrap;min-width:0}.status-rail>div{margin-left:auto;flex:none}.status-rail .icon-button{width:29px;height:29px}.status-rail .reset-credit{margin-left:0;padding:5px 8px;border:1px solid rgba(245,191,75,.22);background:rgba(245,191,75,.07);border-radius:999px;white-space:nowrap;font-size:11px;flex:none}
 .settings-popover{margin:12px 0 -2px;padding:12px 13px 10px;border:1px solid #262e38;border-radius:14px;background:#10161d}.settings-popover>div{display:flex;justify-content:space-between;align-items:center;font-size:12px}.settings-popover b{font-weight:600}.settings-popover span{color:#aeb9c8;font-variant-numeric:tabular-nums}.settings-popover input{width:100%;accent-color:#73dca0;margin:12px 0 7px}.settings-popover p{margin:0;color:#7e8a99;font-size:11px;line-height:1.45}
 .island-panel--closing{opacity:0;transform:translateY(-5px) scale(.985);transition:opacity 165ms ease,transform 165ms ease;pointer-events:none}
