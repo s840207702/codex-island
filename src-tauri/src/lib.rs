@@ -71,8 +71,8 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
     Ok(())
 }
 #[cfg(target_os = "windows")]
-#[tauri::command] fn get_immersive_state(window: WebviewWindow) -> Result<ImmersiveState, String> {
-    use windows::Win32::{Foundation::RECT, System::Threading::GetCurrentProcessId, UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId}};
+#[tauri::command] fn get_immersive_state(_window: WebviewWindow) -> Result<ImmersiveState, String> {
+    use windows::Win32::{Foundation::RECT, Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITORINFO}, System::Threading::GetCurrentProcessId, UI::WindowsAndMessaging::{GetForegroundWindow, GetWindowRect, GetWindowThreadProcessId}};
     unsafe {
         let foreground = GetForegroundWindow();
         if foreground.0.is_null() { return Ok(ImmersiveState { active: false }); }
@@ -81,13 +81,14 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
         if foreground_pid == GetCurrentProcessId() { return Ok(ImmersiveState { active: false }); }
         let mut foreground_rect = RECT::default();
         if GetWindowRect(foreground, &mut foreground_rect).is_err() { return Ok(ImmersiveState { active: false }); }
-        let island_position = window.outer_position().map_err(|e| e.to_string())?;
-        let island_size = window.outer_size().map_err(|e| e.to_string())?;
-        let left = island_position.x;
-        let top = island_position.y;
-        let right = left + island_size.width as i32;
-        let bottom = top + island_size.height as i32;
-        Ok(ImmersiveState { active: foreground_rect.left <= left && foreground_rect.top <= top && foreground_rect.right >= right && foreground_rect.bottom >= bottom })
+        let monitor = MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST);
+        let mut monitor_info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
+        if !GetMonitorInfoW(monitor, &mut monitor_info).as_bool() { return Ok(ImmersiveState { active: false }); }
+        let screen = monitor_info.rcMonitor;
+        // Ordinary maximized windows are deliberately excluded: only a true full-screen
+        // foreground surface should make the island reduce itself.
+        let tolerance = 2;
+        Ok(ImmersiveState { active: foreground_rect.left <= screen.left + tolerance && foreground_rect.top <= screen.top + tolerance && foreground_rect.right >= screen.right - tolerance && foreground_rect.bottom >= screen.bottom - tolerance })
     }
 }
 #[cfg(not(target_os = "windows"))]
