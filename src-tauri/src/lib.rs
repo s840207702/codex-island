@@ -45,7 +45,7 @@ unsafe extern "system" fn scan_immersive_window(hwnd: windows::Win32::Foundation
 
 fn position_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("window-position.json")) }
 fn language_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("language.txt")) }
-fn read_language() -> String { language_file().and_then(|path| std::fs::read_to_string(path).ok()).filter(|value| ["zh-CN", "en", "ja", "ko"].contains(&value.as_str())).unwrap_or_else(|| "zh-CN".to_owned()) }
+fn read_language() -> String { language_file().and_then(|path| std::fs::read_to_string(path).ok()).filter(|value| ["zh-CN", "zh-TW", "en", "ja", "ko", "es", "fr", "de", "pt-BR", "ru"].contains(&value.as_str())).unwrap_or_else(|| "zh-CN".to_owned()) }
 fn write_language(language: &str) {
     if let Some(path) = language_file() { if let Some(parent) = path.parent() { let _ = std::fs::create_dir_all(parent); } let _ = std::fs::write(path, language); }
 }
@@ -55,6 +55,12 @@ fn tray_labels(language: &str) -> TrayLabels { match language {
     "en" => TrayLabels { show: "Show Codex Island", refresh: "Refresh now", autostart: "Launch at startup", language: "Language", github: "GitHub repository", toolbox: "Feige Toolbox", quit: "Quit Codex Island" },
     "ja" => TrayLabels { show: "Codex Island を表示", refresh: "今すぐ更新", autostart: "起動時に実行", language: "言語", github: "GitHub リポジトリ", toolbox: "非哥ツールボックス", quit: "Codex Island を終了" },
     "ko" => TrayLabels { show: "Codex Island 표시", refresh: "지금 새로고침", autostart: "시작 시 실행", language: "언어", github: "GitHub 저장소", toolbox: "非哥 도구 상자", quit: "Codex Island 종료" },
+    "zh-TW" => TrayLabels { show: "顯示 Codex Island", refresh: "立即重新整理", autostart: "開機時啟動", language: "語言", github: "GitHub 儲存庫", toolbox: "非哥工具箱", quit: "結束 Codex Island" },
+    "es" => TrayLabels { show: "Mostrar Codex Island", refresh: "Actualizar ahora", autostart: "Iniciar con el sistema", language: "Idioma", github: "Repositorio de GitHub", toolbox: "Feige Toolbox", quit: "Salir de Codex Island" },
+    "fr" => TrayLabels { show: "Afficher Codex Island", refresh: "Actualiser maintenant", autostart: "Lancer au démarrage", language: "Langue", github: "Dépôt GitHub", toolbox: "Feige Toolbox", quit: "Quitter Codex Island" },
+    "de" => TrayLabels { show: "Codex Island anzeigen", refresh: "Jetzt aktualisieren", autostart: "Beim Start ausführen", language: "Sprache", github: "GitHub-Repository", toolbox: "Feige Toolbox", quit: "Codex Island beenden" },
+    "pt-BR" => TrayLabels { show: "Mostrar Codex Island", refresh: "Atualizar agora", autostart: "Iniciar com o sistema", language: "Idioma", github: "Repositório GitHub", toolbox: "Feige Toolbox", quit: "Sair do Codex Island" },
+    "ru" => TrayLabels { show: "Показать Codex Island", refresh: "Обновить сейчас", autostart: "Запускать при старте", language: "Язык", github: "Репозиторий GitHub", toolbox: "Feige Toolbox", quit: "Выйти из Codex Island" },
     _ => TrayLabels { show: "显示 Codex Island", refresh: "立即刷新", autostart: "开机时启动", language: "语言", github: "GitHub 仓库", toolbox: "非哥工具箱", quit: "退出 Codex Island" },
 } }
 
@@ -268,7 +274,13 @@ pub fn run() { tauri::Builder::default()
     let lang_en = CheckMenuItem::with_id(app, "lang-en", "English", true, language == "en", None::<&str>)?;
     let lang_ja = CheckMenuItem::with_id(app, "lang-ja", "日本語", true, language == "ja", None::<&str>)?;
     let lang_ko = CheckMenuItem::with_id(app, "lang-ko", "한국어", true, language == "ko", None::<&str>)?;
-    let language_menu = Submenu::with_items(app, labels.language, true, &[&lang_zh, &lang_en, &lang_ja, &lang_ko])?;
+    let lang_zh_tw = CheckMenuItem::with_id(app, "lang-zh-TW", "繁體中文", true, language == "zh-TW", None::<&str>)?;
+    let lang_es = CheckMenuItem::with_id(app, "lang-es", "Español", true, language == "es", None::<&str>)?;
+    let lang_fr = CheckMenuItem::with_id(app, "lang-fr", "Français", true, language == "fr", None::<&str>)?;
+    let lang_de = CheckMenuItem::with_id(app, "lang-de", "Deutsch", true, language == "de", None::<&str>)?;
+    let lang_pt = CheckMenuItem::with_id(app, "lang-pt-BR", "Português (Brasil)", true, language == "pt-BR", None::<&str>)?;
+    let lang_ru = CheckMenuItem::with_id(app, "lang-ru", "Русский", true, language == "ru", None::<&str>)?;
+    let language_menu = Submenu::with_items(app, labels.language, true, &[&lang_zh, &lang_zh_tw, &lang_en, &lang_ja, &lang_ko, &lang_es, &lang_fr, &lang_de, &lang_pt, &lang_ru])?;
     let github = MenuItem::with_id(app, "github", labels.github, true, None::<&str>)?;
     let toolbox = MenuItem::with_id(app, "toolbox", labels.toolbox, true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", labels.quit, true, None::<&str>)?;
@@ -285,7 +297,8 @@ pub fn run() { tauri::Builder::default()
     let github_item = github.clone();
     let toolbox_item = toolbox.clone();
     let quit_item = quit.clone();
-    let zh_item = lang_zh.clone(); let en_item = lang_en.clone(); let ja_item = lang_ja.clone(); let ko_item = lang_ko.clone();
+    let zh_item = lang_zh.clone(); let zh_tw_item = lang_zh_tw.clone(); let en_item = lang_en.clone(); let ja_item = lang_ja.clone(); let ko_item = lang_ko.clone();
+    let es_item = lang_es.clone(); let fr_item = lang_fr.clone(); let de_item = lang_de.clone(); let pt_item = lang_pt.clone(); let ru_item = lang_ru.clone();
     tray.on_menu_event(move |app, event| match event.id.as_ref() {
         "show" => {
             if show_item.is_checked().unwrap_or(true) { show_main_window(app); }
@@ -297,13 +310,15 @@ pub fn run() { tauri::Builder::default()
             let result = if enabled { app.autolaunch().enable() } else { app.autolaunch().disable() };
             if result.is_err() { let _ = autostart_item.set_checked(!enabled); }
         },
-        "lang-zh-CN" | "lang-en" | "lang-ja" | "lang-ko" => {
+        id if id.starts_with("lang-") => {
             let language = event.id.as_ref().trim_start_matches("lang-");
-            let _ = zh_item.set_checked(language == "zh-CN"); let _ = en_item.set_checked(language == "en"); let _ = ja_item.set_checked(language == "ja"); let _ = ko_item.set_checked(language == "ko");
+            let _ = zh_item.set_checked(language == "zh-CN"); let _ = zh_tw_item.set_checked(language == "zh-TW"); let _ = en_item.set_checked(language == "en"); let _ = ja_item.set_checked(language == "ja"); let _ = ko_item.set_checked(language == "ko");
+            let _ = es_item.set_checked(language == "es"); let _ = fr_item.set_checked(language == "fr"); let _ = de_item.set_checked(language == "de"); let _ = pt_item.set_checked(language == "pt-BR"); let _ = ru_item.set_checked(language == "ru");
             write_language(language);
             let labels = tray_labels(language);
             let _ = show_item.set_text(labels.show); let _ = refresh_item.set_text(labels.refresh); let _ = autostart_item.set_text(labels.autostart); let _ = language_menu_item.set_text(labels.language); let _ = github_item.set_text(labels.github); let _ = toolbox_item.set_text(labels.toolbox); let _ = quit_item.set_text(labels.quit);
-            let _ = app.emit("codex-island-language-change", language.to_owned());
+            let _ = app.emit_to("main", "codex-island-language-change", language.to_owned());
+            let _ = app.emit_to("panel", "codex-island-language-change", language.to_owned());
         },
         "github" => { let _ = app.opener().open_url("https://github.com/s840207702/codex-island", None::<&str>); },
         "toolbox" => { let _ = app.opener().open_url("https://www.feige177.com", None::<&str>); },
