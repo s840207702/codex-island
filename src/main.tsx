@@ -1,7 +1,6 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
-import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { RefreshCw, Pin, X, CircleAlert, LoaderCircle, Github, Layers2 } from "lucide-react";
 import "./styles.css";
@@ -72,9 +71,9 @@ function App() {
   const collapseTimer = useRef<number | null>(null);
   const shrinkTimer = useRef<number | null>(null);
   const settingsTimer = useRef<number | null>(null);
-  const positionTimer = useRef<number | null>(null);
   const immersiveTimer = useRef<number | null>(null);
   const immersiveCandidate = useRef<boolean | null>(null);
+  const lastWindowBounds = useRef("");
   const islandRef = useRef<HTMLElement>(null);
   const barRef = useRef<HTMLButtonElement>(null);
   const dragOrigin = useRef<{ x: number; y: number } | null>(null);
@@ -88,7 +87,7 @@ function App() {
   };
   useEffect(() => { void refresh(); }, []);
   useEffect(() => { const ms = failures.current === 0 ? 60_000 : Math.min(30 * 60_000, 30_000 * 2 ** (failures.current - 1)); const timer = window.setTimeout(refresh, ms); return () => window.clearTimeout(timer); }, [usage, stale]);
-  useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); if (settingsTimer.current) window.clearTimeout(settingsTimer.current); if (positionTimer.current) window.clearTimeout(positionTimer.current); if (immersiveTimer.current) window.clearTimeout(immersiveTimer.current); }, []);
+  useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); if (settingsTimer.current) window.clearTimeout(settingsTimer.current); if (immersiveTimer.current) window.clearTimeout(immersiveTimer.current); }, []);
   // Pinning only controls auto-collapse. The island itself stays above other apps.
   useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); }, [pinned]);
   useEffect(() => { localStorage.setItem("codex-island-opacity", String(opacity)); document.documentElement.style.setProperty("--island-opacity", String(opacity / 100)); }, [opacity]);
@@ -98,6 +97,9 @@ function App() {
     let frame = 0;
     const syncWindowBounds = () => {
       const bounds = target.getBoundingClientRect();
+      const nextBounds = `${expanded}:${immersive}:${Math.ceil(bounds.width)}:${Math.ceil(bounds.height)}`;
+      if (lastWindowBounds.current === nextBounds) return;
+      lastWindowBounds.current = nextBounds;
       void invoke("set_expanded", { expanded, immersive, contentWidth: Math.ceil(bounds.width), contentHeight: Math.ceil(bounds.height) }).catch(() => undefined);
     };
     frame = window.requestAnimationFrame(syncWindowBounds);
@@ -118,14 +120,6 @@ function App() {
     const check = () => { void invoke<ImmersiveState>("get_immersive_state").then((state) => schedule(state.active)).catch(() => schedule(false)); };
     check(); const timer = window.setInterval(check, 260);
     return () => window.clearInterval(timer);
-  }, []);
-  useEffect(() => {
-    let unlisten: (() => void) | undefined;
-    void getCurrentWindow().onMoved(() => {
-      if (positionTimer.current) window.clearTimeout(positionTimer.current);
-      positionTimer.current = window.setTimeout(() => { void invoke("save_window_position"); }, 240);
-    }).then((dispose) => { unlisten = dispose; });
-    return () => { unlisten?.(); };
   }, []);
   const topText = useMemo(() => usage ? `${Math.round(usage.primary.remaining_percent)}% · ${compactTime(usage.primary.reset_after_seconds)}` : "—", [usage]);
   const quit = () => invoke("exit_app").catch(() => undefined);
@@ -148,7 +142,10 @@ function App() {
     dragging.current = true;
     void invoke("start_window_drag");
   };
-  const finishPotentialDrag = () => { window.setTimeout(() => { dragOrigin.current = null; dragging.current = false; }, 0); };
+  const finishPotentialDrag = () => {
+    if (dragging.current) void invoke("save_window_position").catch(() => undefined);
+    window.setTimeout(() => { dragOrigin.current = null; dragging.current = false; }, 0);
+  };
   return <main ref={islandRef} className={`island-shell ${expanded ? "island-shell--expanded" : ""} ${immersive ? "island-shell--immersive" : ""}`} onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onMouseDownCapture={beginPotentialDrag} onMouseMoveCapture={continuePotentialDrag} onMouseUpCapture={finishPotentialDrag}>
     <button ref={barRef} className="island-bar" onClick={() => { if (!immersive && !dragging.current) setExpanded(v => !v); }} aria-label={immersive ? "沉浸模式额度" : "展开 Codex 额度"}>
       <span className="bar-identity"><i className={`live-dot ${error ? "live-dot--error" : ""}`} /><span className="brand-orbit" aria-hidden="true" /><b>Codex</b></span><span className="bar-summary">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : topText}</span>

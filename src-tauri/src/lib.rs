@@ -6,7 +6,7 @@ use tauri::{menu::{Menu, MenuItem}, tray::TrayIconBuilder, LogicalPosition, Logi
 #[derive(Serialize)] struct Usage { primary: Window, secondary: Window, plan_type: String, plan_multiplier: Option<String>, reset_credits: Option<i64>, reset_credit_expires_at: Option<Value>, credit_balance: Option<f64>, has_credits: bool, fetched_at: String }
 #[derive(Deserialize)] struct Auth { tokens: Tokens }
 #[derive(Deserialize)] struct Tokens { access_token: String, account_id: Option<String> }
-#[derive(Serialize, Deserialize)] struct SavedWindowPosition { x: f64, y: f64 }
+#[derive(Serialize, Deserialize)] struct SavedWindowPosition { x: f64, y: f64, #[serde(default)] user_moved: bool }
 #[derive(Serialize)] struct ImmersiveState { active: bool }
 
 fn position_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("window-position.json")) }
@@ -34,7 +34,7 @@ fn center_window(window: &WebviewWindow, width: f64, height: f64) -> Result<(), 
 }
 fn restore_window_position(window: &WebviewWindow, width: f64, height: f64) -> Result<(), String> {
     let restored = position_file().and_then(|path| std::fs::read_to_string(path).ok()).and_then(|raw| serde_json::from_str::<SavedWindowPosition>(&raw).ok());
-    if let Some(saved) = restored {
+    if let Some(saved) = restored.filter(|position| position.user_moved) {
         // Migrate the legacy initial offset (6px native + 10px web padding) to the true top edge.
         let y = if saved.y <= 16.0 { 0.0 } else { saved.y };
         window.set_position(Position::Logical(LogicalPosition::new(saved.x, y))).map_err(|e| e.to_string())?;
@@ -79,9 +79,32 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
     let old_size = window.outer_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
     let old_position = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
     if (old_size.width - width).abs() > 0.5 || (old_size.height - height).abs() > 0.5 {
-        let new_position = LogicalPosition::new(old_position.x + (old_size.width - width) / 2.0, old_position.y);
-        window.set_position(Position::Logical(new_position)).map_err(|e| e.to_string())?;
-        window.set_size(Size::Logical(LogicalSize::new(width, height))).map_err(|e| e.to_string())?;
+        // Separate position and size calls create two compositor frames on Windows.
+        // Apply both together so the island never visibly jumps while resizing.
+        #[cfg(target_os = "windows")]
+        {
+            use windows::Win32::UI::WindowsAndMessaging::{SetWindowPos, SWP_NOACTIVATE, SWP_NOOWNERZORDER, SWP_NOZORDER};
+            let new_position = LogicalPosition::new(old_position.x + (old_size.width - width) / 2.0, old_position.y);
+            let physical_position = new_position.to_physical::<i32>(scale);
+            let physical_size = LogicalSize::new(width, height).to_physical::<u32>(scale);
+            unsafe {
+                SetWindowPos(
+                    window.hwnd().map_err(|e| e.to_string())?,
+                    None,
+                    physical_position.x,
+                    physical_position.y,
+                    physical_size.width as i32,
+                    physical_size.height as i32,
+                    SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER,
+                ).map_err(|e| e.to_string())?;
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            let new_position = LogicalPosition::new(old_position.x + (old_size.width - width) / 2.0, old_position.y);
+            window.set_position(Position::Logical(new_position)).map_err(|e| e.to_string())?;
+            window.set_size(Size::Logical(LogicalSize::new(width, height))).map_err(|e| e.to_string())?;
+        }
     }
     Ok(())
 }
@@ -132,13 +155,13 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
     let position = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
     let path = position_file().ok_or("无法定位应用设置目录")?;
     if let Some(parent) = path.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
-    std::fs::write(path, serde_json::to_string(&SavedWindowPosition { x: position.x, y: position.y }).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+    std::fs::write(path, serde_json::to_string(&SavedWindowPosition { x: position.x, y: position.y, user_moved: true }).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
 #[tauri::command] fn start_window_drag(window: WebviewWindow) -> Result<(), String> { window.start_dragging().map_err(|e| e.to_string()) }
 #[tauri::command] fn exit_app(app: tauri::AppHandle) { app.exit(0); }
 fn show_main_window(app: &tauri::AppHandle) { if let Some(window) = app.get_webview_window("main") { let _ = window.show(); let _ = window.set_focus(); } }
 pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| {
-    if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = restore_window_position(&window, 540.0, 64.0); }
+    if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = restore_window_position(&window, 236.0, 46.0); }
     let show = MenuItem::with_id(app, "show", "显示 Codex Island", true, None::<&str>)?;
     let hide = MenuItem::with_id(app, "hide", "隐藏 Codex Island", true, None::<&str>)?;
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
