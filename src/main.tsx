@@ -3,7 +3,7 @@ import { createRoot } from "react-dom/client";
 import { invoke } from "@tauri-apps/api/core";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
-import { RefreshCw, Pin, X, CircleAlert, SlidersHorizontal, LoaderCircle, Github, Boxes } from "lucide-react";
+import { RefreshCw, Pin, X, CircleAlert, LoaderCircle, Github } from "lucide-react";
 import "./styles.css";
 import "./overrides.css";
 
@@ -46,6 +46,8 @@ function Ring({ label, window, tone, period }: { label: string; window: WindowDa
     <p>{period === "short" ? shortResetText(window) : weeklyResetText(window)}</p>
   </section>;
 }
+
+function OpacityGlyph() { return <span className="opacity-glyph" aria-hidden="true"><i /></span>; }
 
 function App() {
   const [usage, setUsage] = useState<Usage | null>(null);
@@ -106,7 +108,7 @@ function App() {
     </button>
     {expanded && <article onPointerEnter={openIsland} onPointerLeave={closeIslandLater} className={`island-panel ${closing ? "island-panel--closing" : ""}`}>
       <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className="plan-label">{usage ? planLabel(usage.plan_type) : "—"}{usage?.plan_multiplier ? ` · ${usage.plan_multiplier}` : ""}</span></div><div className="controls">
-        <button className="icon-button icon-button--external" onClick={() => openExternal("https://github.com/s840207702/codex-island")} title="在 GitHub 查看 Codex Island" aria-label="在 GitHub 查看 Codex Island"><Github size={16} /></button><button className="icon-button icon-button--external" onClick={() => openExternal("https://www.feige177.com")} title="打开非哥工具箱" aria-label="打开非哥工具箱"><Boxes size={16} /></button><span className="control-divider" aria-hidden="true" /><button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => !v)} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button><button className={`icon-button ${settingsOpen ? "icon-button--selected" : ""}`} onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} onClick={() => setSettingsOpen(v => !v)} title="显示设置"><SlidersHorizontal size={16} /></button>
+        <button className="icon-button icon-button--external" onClick={() => openExternal("https://github.com/s840207702/codex-island")} title="在 GitHub 查看 Codex Island" aria-label="在 GitHub 查看 Codex Island"><Github size={16} /></button><button className="icon-button icon-button--avatar" onClick={() => openExternal("https://www.feige177.com")} title="打开非哥工具箱" aria-label="打开非哥工具箱"><img src="/feige-toolbox-avatar.png" alt="" /></button><span className="control-divider" aria-hidden="true" /><button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => !v)} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button><button className={`icon-button icon-button--opacity ${settingsOpen ? "icon-button--selected" : ""}`} onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} onClick={() => setSettingsOpen(v => !v)} title="窗口透明度" aria-label="窗口透明度"><OpacityGlyph /></button>
       </div></header>
       {settingsOpen && <section onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} className="settings-popover" aria-label="窗口透明度"><span>{opacity}%</span><input aria-label="窗口透明度" type="range" min="65" max="100" value={opacity} onChange={(event) => setOpacity(Number(event.target.value))} /></section>}
       {error && !usage ? <div className="error-state"><CircleAlert size={18} /><div><b>暂时无法同步</b><span>{error}</span></div><button onClick={refresh}>重试</button></div> : usage && <div className="overview"><Ring label="5 小时" window={usage.primary} tone="mint" period="short" /><Ring label="本周" window={usage.secondary} tone="amber" period="weekly" /></div>}
