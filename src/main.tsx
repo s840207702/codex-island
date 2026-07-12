@@ -68,13 +68,13 @@ function App() {
 
   const openIsland = () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); setClosing(false); setExpanded(true); };
   const closeIslandLater = () => { if (!pinned) collapseTimer.current = window.setTimeout(() => { setClosing(true); shrinkTimer.current = window.setTimeout(() => { setExpanded(false); setClosing(false); shrinkTimer.current = null; }, 165); collapseTimer.current = null; }, 120); };
-  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""}`} onPointerLeave={closeIslandLater} onPointerEnter={openIsland}>
-    <button className="island-bar" onMouseDown={(event) => { if (event.button === 0) getCurrentWindow().startDragging(); }} onClick={() => setExpanded(v => !v)} aria-label="展开 Codex 额度">
+  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""}`}>
+    <button className="island-bar" onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onMouseDown={(event) => { if (event.button === 0) getCurrentWindow().startDragging(); }} onClick={() => setExpanded(v => !v)} aria-label="展开 Codex 额度">
       <i className={`live-dot ${error ? "live-dot--error" : ""}`} />
       <span className="brand-orbit" aria-hidden="true" />
       <b>Codex</b><span className="bar-summary">{topText}</span>
     </button>
-    {expanded && <article className={`island-panel ${closing ? "island-panel--closing" : ""}`}>
+    {expanded && <article onPointerEnter={openIsland} onPointerLeave={closeIslandLater} className={`island-panel ${closing ? "island-panel--closing" : ""}`}>
       <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className="plan-label">{usage ? planLabel(usage.plan_type) : "—"}{usage?.plan_multiplier ? ` · ${usage.plan_multiplier}` : ""}</span></div><div className="controls">
         <div className="style-switch" role="group" aria-label="显示风格"><button className={style === "overview" ? "selected" : ""} onClick={() => setStyle("overview")}>概览</button><button className={style === "focus" ? "selected" : ""} onClick={() => setStyle("focus")}>专注</button></div>
         <button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => !v)} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button><button className={`icon-button ${settingsOpen ? "icon-button--selected" : ""}`} onClick={() => setSettingsOpen(v => !v)} title="显示设置"><SlidersHorizontal size={16} /></button>

@@ -47,16 +47,13 @@ async fn fetch_usage() -> Result<Usage, String> {
 }
 fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string() }
 #[tauri::command] fn set_expanded(window: WebviewWindow, expanded: bool) -> Result<(), String> {
-    let (width, height) = if expanded { (540, 446) } else { (300, 64) };
+    // The horizontal anchor never changes: only the height grows or collapses.
+    let (width, height) = if expanded { (540, 446) } else { (540, 64) };
     // The React layout uses CSS pixels. Logical sizing keeps that layout stable
     // at 100%, 125%, 150%, and 200% Windows DPI scaling.
     window.set_always_on_top(true).map_err(|e| e.to_string())?;
-    let scale = window.scale_factor().map_err(|e| e.to_string())?;
-    let previous_size = window.outer_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
-    let previous_position = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
-    let next_x = previous_position.x + (previous_size.width - width as f64) / 2.0;
     window.set_size(Size::Logical(LogicalSize::new(width as f64, height as f64))).map_err(|e| e.to_string())?;
-    window.set_position(Position::Logical(LogicalPosition::new(next_x, previous_position.y))).map_err(|e| e.to_string())
+    Ok(())
 }
 #[tauri::command] fn hide_window(window: WebviewWindow) -> Result<(), String> { window.hide().map_err(|e| e.to_string()) }
-pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| { if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = center_window(&window, 300.0, 64.0); } Ok(()) }).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, hide_window]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
+pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| { if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = center_window(&window, 540.0, 64.0); } Ok(()) }).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, hide_window]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
