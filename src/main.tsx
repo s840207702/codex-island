@@ -99,9 +99,9 @@ function App() {
   const startWindowDrag = (event: React.MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
     if (event.button !== 0 || target.closest("input, button:not(.island-bar), .confirm-dialog")) return;
-    void getCurrentWindow().startDragging();
+    void invoke("start_window_drag");
   };
-  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""}`} onMouseDown={startWindowDrag}>
+  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""}`} onMouseDownCapture={startWindowDrag}>
     <button className="island-bar" onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onClick={() => setExpanded(v => !v)} aria-label="展开 Codex 额度">
       <i className={`live-dot ${error ? "live-dot--error" : ""}`} />
       <span className="brand-orbit" aria-hidden="true" />

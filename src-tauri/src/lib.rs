@@ -72,5 +72,6 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
     if let Some(parent) = path.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
     std::fs::write(path, serde_json::to_string(&SavedWindowPosition { x: position.x, y: position.y }).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
 }
+#[tauri::command] fn start_window_drag(window: WebviewWindow) -> Result<(), String> { window.start_dragging().map_err(|e| e.to_string()) }
 #[tauri::command] fn exit_app(app: tauri::AppHandle) { app.exit(0); }
-pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| { if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = restore_window_position(&window, 540.0, 64.0); } Ok(()) }).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, save_window_position, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
+pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| { if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = restore_window_position(&window, 540.0, 64.0); } Ok(()) }).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, save_window_position, start_window_drag, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
