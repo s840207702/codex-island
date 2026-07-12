@@ -1,6 +1,6 @@
-# Codex Quota Island
+# Codex Island
 
-一个 Windows 顶部动态岛式 Codex 额度监控器。读取本机已有的 Codex 登录态，直接显示 OpenAI 服务端返回的 5 小时额度、周额度与重置时间。
+一个可扩展的 Windows 顶部动态岛。当前读取本机已有的 Codex 登录态，显示 OpenAI 服务端返回的套餐、5 小时额度、周额度与重置时间。
 
 ## 特性
 

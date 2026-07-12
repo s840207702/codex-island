@@ -6,7 +6,7 @@ import { RefreshCw, Pin, Eye, EyeOff, X, CircleAlert } from "lucide-react";
 import "./styles.css";
 
 type WindowData = { used_percent: number; remaining_percent: number; reset_after_seconds: number; reset_at?: number | string | null };
-type Usage = { primary: WindowData; secondary: WindowData; credit_balance?: number | null; has_credits: boolean; fetched_at: string };
+type Usage = { primary: WindowData; secondary: WindowData; plan_type: string; credit_balance?: number | null; has_credits: boolean; fetched_at: string };
 type Style = "overview" | "focus";
 
 const compactTime = (seconds: number) => {
@@ -20,6 +20,7 @@ const resetText = (window: WindowData) => {
   }
   return `${compactTime(window.reset_after_seconds)} 后重置`;
 };
+const planLabel = (plan: string) => ({ plus: "Plus", pro: "Pro", business: "Business", team: "Team", enterprise: "Enterprise" }[plan.toLowerCase()] ?? plan.replace(/(^|[_-])(\w)/g, (_, __, char) => char.toUpperCase()));
 
 function Ring({ label, window, tone, primary = false }: { label: string; window: WindowData; tone: "mint" | "amber" | "blue"; primary?: boolean }) {
   const progress = Math.max(0, Math.min(100, window.remaining_percent));
@@ -59,7 +60,7 @@ function App() {
       <b>Codex</b><span className="bar-summary">{topText}</span>
     </button>
     {expanded && <article className="island-panel">
-      <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex</strong></div><div className="controls">
+      <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className="plan-label">{usage ? planLabel(usage.plan_type) : "—"}</span></div><div className="controls">
         <div className="style-switch" role="group" aria-label="显示风格"><button className={style === "overview" ? "selected" : ""} onClick={() => setStyle("overview")}>概览</button><button className={style === "focus" ? "selected" : ""} onClick={() => setStyle("focus")}>专注</button></div>
         <button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => !v)} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button>
       </div></header>
