@@ -130,15 +130,40 @@ function App() {
     finally { setLoading(false); }
   };
   useEffect(() => { void refresh(); }, []);
-  useEffect(() => { void invoke<string>("get_app_language").then((value) => { if (isLocale(value)) setLocale(value); }).catch(() => undefined); }, []);
+  useEffect(() => {
+    let active = true;
+    const syncLocale = () => {
+      void invoke<string>("get_app_language").then((value) => {
+        if (active && isLocale(value)) setLocale((current) => current === value ? current : value);
+      }).catch(() => undefined);
+    };
+    const handleVisibility = () => { if (!document.hidden) syncLocale(); };
+    syncLocale();
+    document.addEventListener("visibilitychange", handleVisibility);
+    window.addEventListener("focus", syncLocale);
+    // Hidden WebView2 windows can miss native events. The lightweight backend
+    // preference check makes the persisted language the single source of truth.
+    const timer = window.setInterval(syncLocale, isDetailWindow ? 300 : 1500);
+    return () => {
+      active = false;
+      document.removeEventListener("visibilitychange", handleVisibility);
+      window.removeEventListener("focus", syncLocale);
+      window.clearInterval(timer);
+    };
+  }, []);
   useEffect(() => {
     let disposeLanguage: (() => void) | undefined;
     let disposeRefresh: (() => void) | undefined;
+    const handleDomLanguage = (event: Event) => {
+      const value = (event as CustomEvent<unknown>).detail;
+      if (isLocale(value)) setLocale(value);
+    };
+    window.addEventListener("codex-island-language-dom-change", handleDomLanguage);
     void Promise.all([
       listen<string>("codex-island-language-change", (event) => { if (isLocale(event.payload)) setLocale(event.payload); }),
       listen("codex-island-refresh", () => void refresh()),
     ]).then(([languageListener, refreshListener]) => { disposeLanguage = languageListener; disposeRefresh = refreshListener; });
-    return () => { disposeLanguage?.(); disposeRefresh?.(); };
+    return () => { window.removeEventListener("codex-island-language-dom-change", handleDomLanguage); disposeLanguage?.(); disposeRefresh?.(); };
   }, []);
   useEffect(() => { localStorage.setItem("codex-island-language", locale); document.documentElement.lang = locale; }, [locale]);
   useEffect(() => {

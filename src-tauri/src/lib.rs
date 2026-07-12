@@ -45,11 +45,25 @@ unsafe extern "system" fn scan_immersive_window(hwnd: windows::Win32::Foundation
 
 fn position_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("window-position.json")) }
 fn language_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("language.txt")) }
-fn read_language() -> String { language_file().and_then(|path| std::fs::read_to_string(path).ok()).filter(|value| ["zh-CN", "zh-TW", "en", "ja", "ko", "es", "fr", "de", "pt-BR", "ru"].contains(&value.as_str())).unwrap_or_else(|| "zh-CN".to_owned()) }
+fn read_language() -> String {
+    language_file()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .map(|value| value.trim_matches(|character: char| character.is_whitespace() || character == '\u{feff}').to_owned())
+        .filter(|value| ["zh-CN", "zh-TW", "en", "ja", "ko", "es", "fr", "de", "pt-BR", "ru"].contains(&value.as_str()))
+        .unwrap_or_else(|| "zh-CN".to_owned())
+}
 fn write_language(language: &str) {
     if let Some(path) = language_file() { if let Some(parent) = path.parent() { let _ = std::fs::create_dir_all(parent); } let _ = std::fs::write(path, language); }
 }
 #[tauri::command] fn get_app_language() -> String { read_language() }
+fn sync_language_to_windows(app: &tauri::AppHandle, language: &str) {
+    let payload = serde_json::to_string(language).unwrap_or_else(|_| "\"zh-CN\"".to_owned());
+    let script = format!("window.dispatchEvent(new CustomEvent('codex-island-language-dom-change', {{ detail: {payload} }}));");
+    for label in ["main", "panel"] {
+        let _ = app.emit_to(label, "codex-island-language-change", language.to_owned());
+        if let Some(window) = app.get_webview_window(label) { let _ = window.eval(&script); }
+    }
+}
 struct TrayLabels { show: &'static str, refresh: &'static str, autostart: &'static str, language: &'static str, github: &'static str, toolbox: &'static str, quit: &'static str }
 fn tray_labels(language: &str) -> TrayLabels { match language {
     "en" => TrayLabels { show: "Show Codex Island", refresh: "Refresh now", autostart: "Launch at startup", language: "Language", github: "GitHub repository", toolbox: "Feige Toolbox", quit: "Quit Codex Island" },
@@ -234,7 +248,8 @@ fn show_detail_panel(window: WebviewWindow) -> Result<(), String> {
     // The details webview spends most of its lifetime hidden. Re-sync its
     // locale whenever it becomes visible so a missed background event can
     // never leave the pill and panel in different languages.
-    window.app_handle().emit_to("panel", "codex-island-language-change", read_language()).map_err(|e| e.to_string())
+    sync_language_to_windows(window.app_handle(), &read_language());
+    Ok(())
 }
 #[tauri::command]
 fn hide_detail_panel(app: tauri::AppHandle) -> Result<(), String> {
@@ -321,8 +336,7 @@ pub fn run() { tauri::Builder::default()
             write_language(language);
             let labels = tray_labels(language);
             let _ = show_item.set_text(labels.show); let _ = refresh_item.set_text(labels.refresh); let _ = autostart_item.set_text(labels.autostart); let _ = language_menu_item.set_text(labels.language); let _ = github_item.set_text(labels.github); let _ = toolbox_item.set_text(labels.toolbox); let _ = quit_item.set_text(labels.quit);
-            let _ = app.emit_to("main", "codex-island-language-change", language.to_owned());
-            let _ = app.emit_to("panel", "codex-island-language-change", language.to_owned());
+            sync_language_to_windows(app, language);
         },
         "github" => { let _ = app.opener().open_url("https://github.com/s840207702/codex-island", None::<&str>); },
         "toolbox" => { let _ = app.opener().open_url("https://www.feige177.com", None::<&str>); },
