@@ -14,23 +14,36 @@ const compactTime = (seconds: number) => {
   const minutes = Math.max(0, Math.floor(seconds / 60));
   return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
 };
-const resetText = (window: WindowData) => {
+const resetDate = (window: WindowData) => {
   if (window.reset_at) {
     const date = new Date(typeof window.reset_at === "number" ? window.reset_at * 1000 : window.reset_at);
-    if (!Number.isNaN(date.getTime())) return `重置于 ${new Intl.DateTimeFormat("zh-CN", { weekday: "short", hour: "2-digit", minute: "2-digit" }).format(date)}`;
+    if (!Number.isNaN(date.getTime())) return date;
   }
-  return `${compactTime(window.reset_after_seconds)} 后重置`;
+  return null;
+};
+const shortResetText = (window: WindowData) => {
+  const date = resetDate(window); if (!date) return `${compactTime(window.reset_after_seconds)} 后重置`;
+  const today = new Date(); today.setHours(0, 0, 0, 0); const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+  const time = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false }).format(date);
+  if (date >= today && date < tomorrow) return `今天 ${time} 重置`;
+  const dayAfter = new Date(tomorrow); dayAfter.setDate(dayAfter.getDate() + 1);
+  if (date >= tomorrow && date < dayAfter) return `明天 ${time} 重置`;
+  return `将于 ${new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date)} 重置`;
+};
+const weeklyResetText = (window: WindowData) => {
+  const date = resetDate(window); if (!date) return `${compactTime(window.reset_after_seconds)} 后重置`;
+  return `将于 ${new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date)} 重置`;
 };
 const planLabel = (plan: string) => ({ plus: "Plus", pro: "Pro", business: "Business", team: "Team", enterprise: "Enterprise" }[plan.toLowerCase()] ?? plan.replace(/(^|[_-])(\w)/g, (_, __, char) => char.toUpperCase()));
 const expiryText = (value?: number | string | null) => { if (!value) return null; const date = new Date(typeof value === "number" ? value * 1000 : value); return Number.isNaN(date.getTime()) ? null : `最早到期 ${new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date)}`; };
 
-function Ring({ label, window, tone, primary = false }: { label: string; window: WindowData; tone: "mint" | "amber" | "blue"; primary?: boolean }) {
+function Ring({ label, window, tone, period, primary = false }: { label: string; window: WindowData; tone: "mint" | "amber" | "blue"; period: "short" | "weekly"; primary?: boolean }) {
   const progress = Math.max(0, Math.min(100, window.remaining_percent));
   return <section className={`ring-block ${primary ? "ring-block--hero" : ""}`}>
     <div className={`ring ring--${tone}`} style={{ "--progress": `${progress * 3.6}deg` } as React.CSSProperties}>
       <div className="ring__inside"><span>{label}</span><strong>{Math.round(progress)}%</strong><small>剩余</small></div>
     </div>
-    <p>{resetText(window)}</p>
+    <p>{period === "short" ? shortResetText(window) : weeklyResetText(window)}</p>
   </section>;
 }
 
@@ -84,8 +97,8 @@ function App() {
       </div></header>
       {settingsOpen && <section onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} className="settings-popover" aria-label="窗口透明度"><span>{opacity}%</span><input aria-label="窗口透明度" type="range" min="65" max="100" value={opacity} onChange={(event) => setOpacity(Number(event.target.value))} /></section>}
       {error && !usage ? <div className="error-state"><CircleAlert size={18} /><div><b>暂时无法同步</b><span>{error}</span></div><button onClick={refresh}>重试</button></div> : usage && (style === "overview" ?
-        <div className="overview"><Ring label="5 小时" window={usage.primary} tone="mint" /><Ring label="本周" window={usage.secondary} tone="amber" /></div> :
-        <div className="focus"><Ring label="5 小时额度" window={usage.primary} tone="blue" primary /><div className="weekly-line"><span className="weekly-line__dot" /><b>周额度</b><strong>{Math.round(usage.secondary.remaining_percent)}%</strong><em>{resetText(usage.secondary)}</em></div></div>)}
+        <div className="overview"><Ring label="5 小时" window={usage.primary} tone="mint" period="short" /><Ring label="本周" window={usage.secondary} tone="amber" period="weekly" /></div> :
+        <div className="focus"><Ring label="5 小时额度" window={usage.primary} tone="blue" period="short" primary /><div className="weekly-line"><span className="weekly-line__dot" /><b>周额度</b><strong>{Math.round(usage.secondary.remaining_percent)}%</strong><em>{weeklyResetText(usage.secondary)}</em></div></div>)}
       <footer className="status-rail"><span className="status-source">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : <i className={`live-dot ${stale ? "live-dot--error" : ""}`} />}{stale ? "上次成功数据 · 重试中" : !loading && "OpenAI · 刚刚同步"}</span>{usage?.reset_credits != null && <em className="reset-credit">重置 {usage.reset_credits}{expiryText(usage.reset_credit_expires_at) ? ` · ${expiryText(usage.reset_credit_expires_at)?.replace("最早到期 ", "")}` : ""}</em>}<div><button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => !v)} title={pinned ? "常驻展开" : "自动收起"}>{pinned ? <Eye size={16} /> : <EyeOff size={16} />}</button><button className="icon-button" onClick={refresh} title="立即刷新"><RefreshCw size={16} className={loading ? "spinning" : ""} /></button><button className="icon-button" onClick={close} title="隐藏"><X size={16} /></button></div></footer>
     </article>}
   </main>;
