@@ -10,38 +10,6 @@ use tauri_plugin_opener::OpenerExt;
 #[derive(Deserialize)] struct Tokens { access_token: String, account_id: Option<String> }
 #[derive(Serialize, Deserialize)] struct SavedWindowPosition { x: f64, y: f64, #[serde(default)] user_moved: bool }
 #[derive(Serialize)] struct ImmersiveState { active: bool }
-#[cfg(target_os = "windows")]
-struct ImmersiveScan { island: windows::Win32::Foundation::RECT, own_pid: u32, active: bool }
-#[cfg(target_os = "windows")]
-unsafe extern "system" fn scan_immersive_window(hwnd: windows::Win32::Foundation::HWND, data: windows::Win32::Foundation::LPARAM) -> windows::core::BOOL {
-    use windows::{core::BOOL, Win32::{Foundation::RECT, Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITORINFO}, UI::WindowsAndMessaging::{GetClassNameW, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsWindowVisible, GWL_EXSTYLE, GWL_STYLE, WS_CAPTION, WS_EX_TOPMOST}}};
-    let scan = &mut *(data.0 as *mut ImmersiveScan);
-    if !IsWindowVisible(hwnd).as_bool() { return BOOL(1); }
-    let mut pid = 0;
-    GetWindowThreadProcessId(hwnd, Some(&mut pid));
-    if pid == scan.own_pid { return BOOL(1); }
-    let mut title_buffer = [0u16; 256];
-    let mut class_buffer = [0u16; 256];
-    let title_len = GetWindowTextW(hwnd, &mut title_buffer).max(0) as usize;
-    let class_len = GetClassNameW(hwnd, &mut class_buffer).max(0) as usize;
-    let identity = format!("{} {}", String::from_utf16_lossy(&title_buffer[..title_len]), String::from_utf16_lossy(&class_buffer[..class_len])).to_ascii_lowercase();
-    if ["progman", "workerw", "desktop", "fence", "textinputhost", "windows 输入体验"].iter().any(|term| identity.contains(term)) { return BOOL(1); }
-    let mut rect = RECT::default();
-    if GetWindowRect(hwnd, &mut rect).is_err() { return BOOL(1); }
-    let monitor = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
-    let mut info = MONITORINFO { cbSize: std::mem::size_of::<MONITORINFO>() as u32, ..Default::default() };
-    if !GetMonitorInfoW(monitor, &mut info).as_bool() { return BOOL(1); }
-    let screen = info.rcMonitor;
-    let tolerance = 2;
-    let fills_monitor = rect.left <= screen.left + tolerance && rect.top <= screen.top + tolerance && rect.right >= screen.right - tolerance && rect.bottom >= screen.bottom - tolerance;
-    let covers_island = rect.left <= scan.island.left && rect.top <= scan.island.top && rect.right >= scan.island.right && rect.bottom >= scan.island.bottom;
-    let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
-    let extended_style = GetWindowLongW(hwnd, GWL_EXSTYLE) as u32;
-    let frameless = (style & WS_CAPTION.0) == 0;
-    let topmost = (extended_style & WS_EX_TOPMOST.0) != 0;
-    if (fills_monitor && (frameless || topmost)) || (topmost && covers_island) { scan.active = true; return BOOL(0); }
-    BOOL(1)
-}
 
 fn position_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("window-position.json")) }
 fn language_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("language.txt")) }
@@ -179,13 +147,10 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
 }
 #[cfg(target_os = "windows")]
 #[tauri::command] fn get_immersive_state(_window: WebviewWindow) -> Result<ImmersiveState, String> {
-    use windows::Win32::{Foundation::{LPARAM, RECT}, Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITORINFO}, System::Threading::GetCurrentProcessId, UI::WindowsAndMessaging::{EnumWindows, GetClassNameW, GetForegroundWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsZoomed, GWL_EXSTYLE, GWL_STYLE, WS_CAPTION, WS_EX_TOPMOST}};
+    use windows::Win32::{Foundation::RECT, Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITORINFO}, System::Threading::GetCurrentProcessId, UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsZoomed, GWL_EXSTYLE, GWL_STYLE, WS_CAPTION, WS_EX_TOPMOST}};
     unsafe {
         let island_position = _window.outer_position().map_err(|e| e.to_string())?;
         let island_size = _window.outer_size().map_err(|e| e.to_string())?;
-        let mut scan = ImmersiveScan { island: RECT { left: island_position.x, top: island_position.y, right: island_position.x + island_size.width as i32, bottom: island_position.y + island_size.height as i32 }, own_pid: GetCurrentProcessId(), active: false };
-        let _ = EnumWindows(Some(scan_immersive_window), LPARAM(&mut scan as *mut ImmersiveScan as isize));
-        if scan.active { return Ok(ImmersiveState { active: true }); }
         let foreground = GetForegroundWindow();
         if foreground.0.is_null() { return Ok(ImmersiveState { active: false }); }
         let mut foreground_pid = 0;
