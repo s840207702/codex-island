@@ -100,6 +100,11 @@ function App() {
   // Pinning only controls auto-collapse. The island itself stays above other apps.
   useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); }, [pinned]);
   useEffect(() => { localStorage.setItem("codex-island-opacity", String(opacity)); document.documentElement.style.setProperty("--island-opacity", String(opacity / 100)); }, [opacity]);
+  useEffect(() => {
+    let dispose: (() => void) | undefined;
+    void listen<number>("codex-island-opacity-change", (event) => setOpacity(Math.max(65, Math.min(100, event.payload)))).then((unlisten) => { dispose = unlisten; });
+    return () => dispose?.();
+  }, []);
   useLayoutEffect(() => {
     if (isDetailWindow) return;
     const target = expanded ? islandRef.current : barRef.current;
@@ -187,6 +192,7 @@ function App() {
   };
   const keepSettingsOpen = () => { if (settingsTimer.current) window.clearTimeout(settingsTimer.current); };
   const hideSettingsLater = () => { settingsTimer.current = window.setTimeout(() => { setSettingsOpen(false); settingsTimer.current = null; }, 480); };
+  const changeOpacity = (value: number) => { setOpacity(value); void emit("codex-island-opacity-change", value); };
   const beginPotentialDrag = (event: React.MouseEvent<HTMLElement>) => {
     const target = event.target as HTMLElement;
     if (event.button !== 0 || target.closest("input, button:not(.island-bar), .confirm-dialog")) return;
@@ -208,7 +214,7 @@ function App() {
       <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className="plan-label">{usage ? planLabel(usage.plan_type) : "—"}{usage?.plan_multiplier ? ` · ${usage.plan_multiplier}` : ""}</span></div><div className="controls">
         <button className="icon-button icon-button--external" onClick={() => openExternal("https://github.com/s840207702/codex-island")} title="在 GitHub 查看 Codex Island" aria-label="在 GitHub 查看 Codex Island"><Github size={16} /></button><button className="icon-button icon-button--avatar" onClick={() => openExternal("https://www.feige177.com")} title="打开非哥工具箱" aria-label="打开非哥工具箱"><img src="/feige-toolbox-avatar.png" alt="" /></button><span className="control-divider" aria-hidden="true" /><button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => { const next = !v; if (isDetailWindow) void emit("codex-island-detail-pin", next); return next; })} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button><button className={`icon-button icon-button--opacity ${settingsOpen ? "icon-button--selected" : ""}`} onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} onClick={() => setSettingsOpen(v => !v)} title="窗口透明度" aria-label="窗口透明度"><Layers2 size={17} strokeWidth={1.8} /></button>
       </div></header>
-      {settingsOpen && <section onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} className="settings-popover" aria-label="窗口透明度"><span>{opacity}%</span><input aria-label="窗口透明度" type="range" min="65" max="100" value={opacity} onChange={(event) => setOpacity(Number(event.target.value))} /></section>}
+      {settingsOpen && <section onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} className="settings-popover" aria-label="窗口透明度"><span>{opacity}%</span><input aria-label="窗口透明度" type="range" min="65" max="100" value={opacity} onChange={(event) => changeOpacity(Number(event.target.value))} /></section>}
       {error && !usage ? <div className="error-state"><CircleAlert size={18} /><div><b>暂时无法同步</b><span>{error}</span></div><button onClick={refresh}>重试</button></div> : usage && <div className="overview"><Ring label="5 小时" window={usage.primary} tone="mint" period="short" /><Ring label="本周" window={usage.secondary} tone="amber" period="weekly" /></div>}
       <footer className="status-rail"><span className="status-source">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : <i className={`live-dot ${stale ? "live-dot--error" : ""}`} />}{stale ? "上次成功数据 · 重试中" : !loading && "OpenAI · 刚刚同步"}</span>{usage?.reset_credits != null && <em className="reset-credit">重置 {usage.reset_credits}{expiryText(usage.reset_credit_expires_at) ? ` · ${expiryText(usage.reset_credit_expires_at)?.replace("最早到期 ", "")}` : ""}</em>}<div><button className="icon-button" onClick={refresh} title="立即刷新"><RefreshCw size={16} className={loading ? "spinning" : ""} /></button><button className="icon-button" onClick={() => setExitConfirmOpen(true)} title="退出 Codex Island" aria-label="退出 Codex Island"><X size={16} /></button></div></footer>
       {exitConfirmOpen && <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="exit-dialog-title"><div className="confirm-dialog__card"><span className="confirm-dialog__eyebrow">退出确认</span><strong id="exit-dialog-title">要完全退出 Codex Island 吗？</strong><p>退出后将停止额度同步和桌面悬浮显示。</p><div><button className="text-action" onClick={() => setExitConfirmOpen(false)}>取消</button><button className="confirm-dialog__exit" onClick={quit}>退出应用</button></div></div></section>}
