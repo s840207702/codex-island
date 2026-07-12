@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use tauri::{PhysicalSize, Size, WebviewWindow};
+use tauri::{LogicalSize, Size, WebviewWindow};
 
 #[derive(Serialize)] struct Window { used_percent: f64, remaining_percent: f64, reset_after_seconds: i64, reset_at: Option<Value> }
 #[derive(Serialize)] struct Usage { primary: Window, secondary: Window, credit_balance: Option<f64>, has_credits: bool, fetched_at: String }
@@ -27,7 +27,9 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
 #[tauri::command] fn set_pinned(window: WebviewWindow, pinned: bool) -> Result<(), String> { window.set_always_on_top(pinned).map_err(|e| e.to_string()) }
 #[tauri::command] fn set_expanded(window: WebviewWindow, expanded: bool) -> Result<(), String> {
     let (width, height) = if expanded { (540, 390) } else { (300, 64) };
-    window.set_size(Size::Physical(PhysicalSize::new(width, height))).map_err(|e| e.to_string())
+    // The React layout uses CSS pixels. Logical sizing keeps that layout stable
+    // at 100%, 125%, 150%, and 200% Windows DPI scaling.
+    window.set_size(Size::Logical(LogicalSize::new(width as f64, height as f64))).map_err(|e| e.to_string())
 }
 #[tauri::command] fn hide_window(window: WebviewWindow) -> Result<(), String> { window.hide().map_err(|e| e.to_string()) }
 pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).invoke_handler(tauri::generate_handler![fetch_usage, set_pinned, set_expanded, hide_window]).run(tauri::generate_context!()).expect("error while running Codex Quota Island"); }
