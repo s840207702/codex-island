@@ -7,7 +7,7 @@ import "./styles.css";
 import "./overrides.css";
 
 type WindowData = { used_percent: number; remaining_percent: number; reset_after_seconds: number; reset_at?: number | string | null };
-type Usage = { primary: WindowData; secondary: WindowData; plan_type: string; reset_credits?: number | null; credit_balance?: number | null; has_credits: boolean; fetched_at: string };
+type Usage = { primary: WindowData; secondary: WindowData; plan_type: string; plan_multiplier?: string | null; reset_credits?: number | null; reset_credit_expires_at?: number | string | null; credit_balance?: number | null; has_credits: boolean; fetched_at: string };
 type Style = "overview" | "focus";
 
 const compactTime = (seconds: number) => {
@@ -22,6 +22,7 @@ const resetText = (window: WindowData) => {
   return `${compactTime(window.reset_after_seconds)} 后重置`;
 };
 const planLabel = (plan: string) => ({ plus: "Plus", pro: "Pro", business: "Business", team: "Team", enterprise: "Enterprise" }[plan.toLowerCase()] ?? plan.replace(/(^|[_-])(\w)/g, (_, __, char) => char.toUpperCase()));
+const expiryText = (value?: number | string | null) => { if (!value) return null; const date = new Date(typeof value === "number" ? value * 1000 : value); return Number.isNaN(date.getTime()) ? null : `最早到期 ${new Intl.DateTimeFormat("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date)}`; };
 
 function Ring({ label, window, tone, primary = false }: { label: string; window: WindowData; tone: "mint" | "amber" | "blue"; primary?: boolean }) {
   const progress = Math.max(0, Math.min(100, window.remaining_percent));
@@ -63,15 +64,15 @@ function App() {
   const close = () => invoke("hide_window").catch(() => undefined);
 
   const openIsland = () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); setExpanded(true); };
-  const closeIslandLater = () => { if (!pinned) collapseTimer.current = window.setTimeout(() => setExpanded(false), 420); };
-  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""}`} onMouseLeave={closeIslandLater} onMouseEnter={openIsland}>
+  const closeIslandLater = () => { if (!pinned) collapseTimer.current = window.setTimeout(() => { setExpanded(false); collapseTimer.current = null; }, 120); };
+  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""}`} onPointerLeave={closeIslandLater} onPointerEnter={openIsland}>
     <button className="island-bar" onMouseDown={(event) => { if (event.button === 0) getCurrentWindow().startDragging(); }} onClick={() => setExpanded(v => !v)} aria-label="展开 Codex 额度">
       <i className={`live-dot ${error ? "live-dot--error" : ""}`} />
       <span className="brand-orbit" aria-hidden="true" />
       <b>Codex</b><span className="bar-summary">{topText}</span>
     </button>
     {expanded && <article className="island-panel">
-      <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className="plan-label">{usage ? planLabel(usage.plan_type) : "—"}</span></div><div className="controls">
+      <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className="plan-label">{usage ? planLabel(usage.plan_type) : "—"}{usage?.plan_multiplier ? ` · ${usage.plan_multiplier}` : ""}</span></div><div className="controls">
         <div className="style-switch" role="group" aria-label="显示风格"><button className={style === "overview" ? "selected" : ""} onClick={() => setStyle("overview")}>概览</button><button className={style === "focus" ? "selected" : ""} onClick={() => setStyle("focus")}>专注</button></div>
         <button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => !v)} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button><button className={`icon-button ${settingsOpen ? "icon-button--selected" : ""}`} onClick={() => setSettingsOpen(v => !v)} title="显示设置"><SlidersHorizontal size={16} /></button>
       </div></header>
@@ -79,7 +80,7 @@ function App() {
       {error && !usage ? <div className="error-state"><CircleAlert size={18} /><div><b>暂时无法同步</b><span>{error}</span></div><button onClick={refresh}>重试</button></div> : usage && (style === "overview" ?
         <div className="overview"><Ring label="5 小时" window={usage.primary} tone="mint" /><Ring label="本周" window={usage.secondary} tone="amber" /></div> :
         <div className="focus"><Ring label="5 小时额度" window={usage.primary} tone="blue" primary /><div className="weekly-line"><span className="weekly-line__dot" /><b>周额度</b><strong>{Math.round(usage.secondary.remaining_percent)}%</strong><em>{resetText(usage.secondary)}</em></div></div>)}
-      <footer><span><i className={`live-dot ${stale ? "live-dot--error" : ""}`} />{loading ? "正在同步服务端…" : stale ? "显示上次成功数据 · 正在重试" : "刚刚同步 · 来源：OpenAI"}{usage?.reset_credits != null && <em className="reset-credit">重置机会 {usage.reset_credits}</em>}</span><div><button className="text-action" onClick={() => setPinned(v => !v)}>{pinned ? <><Eye size={14} /> 常驻</> : <><EyeOff size={14} /> 自动收起</>}</button><button className="icon-button" onClick={refresh} title="立即刷新"><RefreshCw size={16} className={loading ? "spinning" : ""} /></button><button className="icon-button" onClick={close} title="隐藏"><X size={16} /></button></div></footer>
+      <footer><span><i className={`live-dot ${stale ? "live-dot--error" : ""}`} />{loading ? "正在同步服务端…" : stale ? "显示上次成功数据 · 正在重试" : "刚刚同步 · 来源：OpenAI"}{usage?.reset_credits != null && <em className="reset-credit">重置机会 {usage.reset_credits}{expiryText(usage.reset_credit_expires_at) ? ` · ${expiryText(usage.reset_credit_expires_at)}` : ""}</em>}</span><div><button className="text-action" onClick={() => setPinned(v => !v)}>{pinned ? <><Eye size={14} /> 常驻</> : <><EyeOff size={14} /> 自动收起</>}</button><button className="icon-button" onClick={refresh} title="立即刷新"><RefreshCw size={16} className={loading ? "spinning" : ""} /></button><button className="icon-button" onClick={close} title="隐藏"><X size={16} /></button></div></footer>
     </article>}
   </main>;
 }
