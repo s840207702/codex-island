@@ -200,7 +200,12 @@ function App() {
   useEffect(() => {
     if (!isDetailWindow) return;
     let dispose: (() => void) | undefined;
-    void listen<boolean>("codex-island-detail-closing", (event) => setPanelClosing(event.payload)).then((unlisten) => { dispose = unlisten; });
+    void listen<boolean>("codex-island-detail-closing", (event) => {
+      setPanelClosing(event.payload);
+      if (!event.payload) {
+        void invoke<string>("get_app_language").then((value) => { if (isLocale(value)) setLocale(value); }).catch(() => undefined);
+      }
+    }).then((unlisten) => { dispose = unlisten; });
     return () => dispose?.();
   }, []);
   useEffect(() => {

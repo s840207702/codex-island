@@ -230,7 +230,11 @@ fn show_detail_panel(window: WebviewWindow) -> Result<(), String> {
     panel.set_ignore_cursor_events(false).map_err(|e| e.to_string())?;
     panel.set_position(Position::Logical(position)).map_err(|e| e.to_string())?;
     panel.set_size(Size::Logical(LogicalSize::new(width, 351.0))).map_err(|e| e.to_string())?;
-    panel.show().map_err(|e| e.to_string())
+    panel.show().map_err(|e| e.to_string())?;
+    // The details webview spends most of its lifetime hidden. Re-sync its
+    // locale whenever it becomes visible so a missed background event can
+    // never leave the pill and panel in different languages.
+    window.app_handle().emit_to("panel", "codex-island-language-change", read_language()).map_err(|e| e.to_string())
 }
 #[tauri::command]
 fn hide_detail_panel(app: tauri::AppHandle) -> Result<(), String> {
