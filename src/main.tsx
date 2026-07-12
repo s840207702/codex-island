@@ -57,7 +57,7 @@ function App() {
   useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); }, []);
   useEffect(() => { localStorage.setItem("quota-island-style", style); }, [style]);
   useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); invoke("set_pinned", { pinned }).catch(() => undefined); }, [pinned]);
-  useEffect(() => { localStorage.setItem("codex-island-opacity", String(opacity)); invoke("set_opacity", { opacity: opacity / 100 }).catch(() => undefined); }, [opacity]);
+  useEffect(() => { localStorage.setItem("codex-island-opacity", String(opacity)); document.documentElement.style.setProperty("--island-opacity", String(opacity / 100)); }, [opacity]);
   useEffect(() => { invoke("set_expanded", { expanded }).catch(() => undefined); }, [expanded]);
   const topText = useMemo(() => usage ? `${Math.round(usage.primary.remaining_percent)}% · ${compactTime(usage.primary.reset_after_seconds)}` : "正在同步", [usage]);
   const close = () => invoke("hide_window").catch(() => undefined);

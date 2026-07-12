@@ -26,7 +26,6 @@ async fn fetch_usage() -> Result<Usage, String> {
 }
 fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string() }
 #[tauri::command] fn set_pinned(window: WebviewWindow, pinned: bool) -> Result<(), String> { window.set_always_on_top(pinned).map_err(|e| e.to_string()) }
-#[tauri::command] fn set_opacity(window: WebviewWindow, opacity: f64) -> Result<(), String> { window.set_opacity(opacity.clamp(0.65, 1.0)).map_err(|e| e.to_string()) }
 #[tauri::command] fn set_expanded(window: WebviewWindow, expanded: bool) -> Result<(), String> {
     let (width, height) = if expanded { (540, 446) } else { (300, 64) };
     // The React layout uses CSS pixels. Logical sizing keeps that layout stable
@@ -39,4 +38,4 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
     window.set_position(Position::Logical(LogicalPosition::new(next_x, previous_position.y))).map_err(|e| e.to_string())
 }
 #[tauri::command] fn hide_window(window: WebviewWindow) -> Result<(), String> { window.hide().map_err(|e| e.to_string()) }
-pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).invoke_handler(tauri::generate_handler![fetch_usage, set_pinned, set_opacity, set_expanded, hide_window]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
+pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).invoke_handler(tauri::generate_handler![fetch_usage, set_pinned, set_expanded, hide_window]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
