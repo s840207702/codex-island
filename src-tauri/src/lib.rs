@@ -246,7 +246,7 @@ pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).set
     let quit = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&show, &hide, &quit])?;
     let mut tray = TrayIconBuilder::with_id("codex-island-tray").tooltip("Codex Island").menu(&menu);
-    if let Some(icon) = app.default_window_icon() { tray = tray.icon(icon.clone()); }
+    tray = tray.icon(tauri::image::Image::from_bytes(include_bytes!("../icons/tray-avatar.png"))?);
     tray.on_menu_event(|app, event| match event.id.as_ref() { "show" => show_main_window(app), "hide" => { if let Some(window) = app.get_webview_window("main") { let _ = window.hide(); } }, "quit" => app.exit(0), _ => {} }).build(app)?;
     Ok(())
 }).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, get_immersive_state, save_window_position, show_detail_panel, hide_detail_panel, is_cursor_over_island, start_window_drag, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
