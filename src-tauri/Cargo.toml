@@ -1,10 +1,10 @@
 [package]
-name = "codex-quota-island"
+name = "codex-island"
 version = "0.1.0"
 edition = "2021"
 
 [lib]
-name = "codex_quota_island_lib"
+name = "codex_island_lib"
 crate-type = ["cdylib", "rlib"]
 
 [build-dependencies]
