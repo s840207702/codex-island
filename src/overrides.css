@@ -1,4 +1,5 @@
 :root{--island-opacity:1}.island-shell{opacity:var(--island-opacity)}.reset-credit { font-style: normal; color: #f5bf4b; margin-left: 5px; }
+.island-shell{padding-top:0}
 .island-shell,.island-shell--expanded{width:520px;transition:none}.island-bar{margin-left:auto;margin-right:auto}
 .island-bar,.island-panel{border:none;box-shadow:none}.island-bar:hover{border-color:transparent}
 .sync-spinner{color:#93a0af;stroke-width:2.2}

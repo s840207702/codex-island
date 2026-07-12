@@ -28,13 +28,15 @@ fn find_expiry(value: &Value) -> Option<Value> {
 fn center_window(window: &WebviewWindow, width: f64, height: f64) -> Result<(), String> {
     let monitor = window.current_monitor().map_err(|e| e.to_string())?.ok_or("未找到显示器")?;
     let scale = monitor.scale_factor(); let size = monitor.size().to_logical::<f64>(scale); let position = monitor.position().to_logical::<f64>(scale);
-    window.set_position(Position::Logical(LogicalPosition::new(position.x + (size.width - width) / 2.0, position.y + 6.0))).map_err(|e| e.to_string())?;
+    window.set_position(Position::Logical(LogicalPosition::new(position.x + (size.width - width) / 2.0, position.y))).map_err(|e| e.to_string())?;
     window.set_size(Size::Logical(LogicalSize::new(width, height))).map_err(|e| e.to_string())
 }
 fn restore_window_position(window: &WebviewWindow, width: f64, height: f64) -> Result<(), String> {
     let restored = position_file().and_then(|path| std::fs::read_to_string(path).ok()).and_then(|raw| serde_json::from_str::<SavedWindowPosition>(&raw).ok());
     if let Some(saved) = restored {
-        window.set_position(Position::Logical(LogicalPosition::new(saved.x, saved.y))).map_err(|e| e.to_string())?;
+        // Migrate the legacy initial offset (6px native + 10px web padding) to the true top edge.
+        let y = if saved.y <= 16.0 { 0.0 } else { saved.y };
+        window.set_position(Position::Logical(LogicalPosition::new(saved.x, y))).map_err(|e| e.to_string())?;
         window.set_size(Size::Logical(LogicalSize::new(width, height))).map_err(|e| e.to_string())
     } else { center_window(window, width, height) }
 }
