@@ -70,6 +70,7 @@ function App() {
   const [stale, setStale] = useState(false);
   const [exitConfirmOpen, setExitConfirmOpen] = useState(false);
   const [immersive, setImmersive] = useState(false);
+  const [panelClosing, setPanelClosing] = useState(false);
   const failures = useRef(0);
   const collapseTimer = useRef<number | null>(null);
   const shrinkTimer = useRef<number | null>(null);
@@ -128,8 +129,19 @@ function App() {
   }, []);
   useEffect(() => {
     if (isDetailWindow) return;
-    void invoke(expanded && !immersive ? "show_detail_panel" : "hide_detail_panel").catch(() => undefined);
+    if (expanded && !immersive) {
+      void emit("codex-island-detail-closing", false);
+      void invoke("show_detail_panel").catch(() => undefined);
+    } else {
+      void invoke("hide_detail_panel").catch(() => undefined);
+    }
   }, [expanded, immersive]);
+  useEffect(() => {
+    if (!isDetailWindow) return;
+    let dispose: (() => void) | undefined;
+    void listen<boolean>("codex-island-detail-closing", (event) => setPanelClosing(event.payload)).then((unlisten) => { dispose = unlisten; });
+    return () => dispose?.();
+  }, []);
   useEffect(() => {
     if (isDetailWindow) return;
     let disposeHover: (() => void) | undefined;
@@ -144,8 +156,8 @@ function App() {
   const quit = () => invoke("exit_app").catch(() => undefined);
   const openExternal = (url: string) => { void openUrl(url).catch(() => undefined); };
 
-  const openIsland = () => { if (immersive) return; if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); setClosing(false); setExpanded(true); };
-  const closeIslandLater = () => { if (!pinned) collapseTimer.current = window.setTimeout(() => { setClosing(true); shrinkTimer.current = window.setTimeout(() => { setExpanded(false); setClosing(false); shrinkTimer.current = null; }, 165); collapseTimer.current = null; }, 120); };
+  const openIsland = () => { if (immersive) return; if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); setClosing(false); void emit("codex-island-detail-closing", false); setExpanded(true); };
+  const closeIslandLater = () => { if (!pinned) collapseTimer.current = window.setTimeout(() => { setClosing(true); void emit("codex-island-detail-closing", true); shrinkTimer.current = window.setTimeout(() => { setExpanded(false); setClosing(false); shrinkTimer.current = null; }, 185); collapseTimer.current = null; }, 75); };
   const keepSettingsOpen = () => { if (settingsTimer.current) window.clearTimeout(settingsTimer.current); };
   const hideSettingsLater = () => { settingsTimer.current = window.setTimeout(() => { setSettingsOpen(false); settingsTimer.current = null; }, 480); };
   const beginPotentialDrag = (event: React.MouseEvent<HTMLElement>) => {
@@ -165,7 +177,7 @@ function App() {
     if (dragging.current) void invoke("save_window_position").catch(() => undefined);
     window.setTimeout(() => { dragOrigin.current = null; dragging.current = false; }, 0);
   };
-  const detail = <article className={`island-panel ${isDetailWindow ? "island-panel--window" : ""} ${closing ? "island-panel--closing" : ""}`} onPointerEnter={() => { if (isDetailWindow) void emit("codex-island-detail-hover", true); }} onPointerLeave={() => { if (isDetailWindow) void emit("codex-island-detail-hover", false); }}>
+  const detail = <article className={`island-panel ${isDetailWindow ? "island-panel--window" : ""} ${closing || panelClosing ? "island-panel--closing" : ""}`} onPointerEnter={() => { if (isDetailWindow) void emit("codex-island-detail-hover", true); }} onPointerLeave={() => { if (isDetailWindow) void emit("codex-island-detail-hover", false); }}>
       <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className="plan-label">{usage ? planLabel(usage.plan_type) : "—"}{usage?.plan_multiplier ? ` · ${usage.plan_multiplier}` : ""}</span></div><div className="controls">
         <button className="icon-button icon-button--external" onClick={() => openExternal("https://github.com/s840207702/codex-island")} title="在 GitHub 查看 Codex Island" aria-label="在 GitHub 查看 Codex Island"><Github size={16} /></button><button className="icon-button icon-button--avatar" onClick={() => openExternal("https://www.feige177.com")} title="打开非哥工具箱" aria-label="打开非哥工具箱"><img src="/feige-toolbox-avatar.png" alt="" /></button><span className="control-divider" aria-hidden="true" /><button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => { const next = !v; if (isDetailWindow) void emit("codex-island-detail-pin", next); return next; })} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button><button className={`icon-button icon-button--opacity ${settingsOpen ? "icon-button--selected" : ""}`} onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} onClick={() => setSettingsOpen(v => !v)} title="窗口透明度" aria-label="窗口透明度"><Layers2 size={17} strokeWidth={1.8} /></button>
       </div></header>

@@ -14,4 +14,4 @@
 .island-shell--immersive .island-bar{width:max-content;min-width:0;padding:0 10px}.island-shell--immersive .bar-summary{white-space:nowrap}
 .island-shell:not(.island-shell--expanded):not(.island-shell--immersive){width:236px}
 .island-bar{contain:paint;transform:translateZ(0);backface-visibility:hidden}.bar-summary__value{display:inline-block;transform:translateZ(0);backface-visibility:hidden;-webkit-font-smoothing:antialiased;font-variant-numeric:tabular-nums}
-.island-panel--window{width:520px;min-height:342px;margin:0;animation:reveal 160ms ease-out}
+.island-panel--window{width:520px;min-height:342px;margin:0;transform-origin:50% 0;animation:panel-arrive 260ms cubic-bezier(.18,.9,.24,1)}@keyframes panel-arrive{0%{opacity:0;transform:translateY(-7px) scale(.982)}68%{opacity:1;transform:translateY(1px) scale(1.002)}100%{opacity:1;transform:translateY(0) scale(1)}}.island-panel--window.island-panel--closing{opacity:0;transform:translateY(-4px) scale(.988);transition:opacity 185ms ease,transform 185ms cubic-bezier(.4,0,.2,1)}
