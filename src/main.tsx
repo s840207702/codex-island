@@ -18,10 +18,6 @@ const compactTime = (seconds: number) => {
   const minutes = Math.max(0, Math.floor(seconds / 60));
   return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
 };
-const compactQuotaTime = (seconds: number) => {
-  const hours = Math.max(0, Math.floor(seconds / 3600));
-  return hours >= 24 ? `${Math.floor(hours / 24)}d` : compactTime(seconds);
-};
 const mixColor = (from: [number, number, number], to: [number, number, number], amount: number) => `rgb(${from.map((channel, index) => Math.round(channel + (to[index] - channel) * amount)).join(" ")})`;
 const quotaTemperature = (remaining: number): QuotaTemperature => {
   const value = Math.max(0, Math.min(100, remaining));
@@ -195,9 +191,7 @@ function App() {
   }, [expanded, pinned, immersive]);
   const topQuota = useMemo(() => {
     if (!usage) return null;
-    const weeklyIsLower = usage.secondary.remaining_percent < usage.primary.remaining_percent;
-    const quota = weeklyIsLower ? usage.secondary : usage.primary;
-    return { quota, prefix: weeklyIsLower ? "周" : "", temperature: quotaTemperature(quota.remaining_percent) };
+    return { quota: usage.primary, temperature: quotaTemperature(usage.primary.remaining_percent) };
   }, [usage]);
   const quit = () => invoke("exit_app").catch(() => undefined);
   const openExternal = (url: string) => { void openUrl(url).catch(() => undefined); };
@@ -246,7 +240,7 @@ function App() {
   if (isDetailWindow) return <main className="detail-hitbox" onPointerEnter={() => void emit("codex-island-detail-hover", true)} onPointerLeave={() => void emit("codex-island-detail-hover", false)}>{detail}</main>;
   return <main ref={islandRef} className={`island-shell ${expanded ? "island-shell--active" : ""} ${immersive ? "island-shell--immersive" : ""}`} onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onMouseDownCapture={beginPotentialDrag} onMouseMoveCapture={continuePotentialDrag} onMouseUpCapture={finishPotentialDrag}>
     <button ref={barRef} className="island-bar" onClick={() => { if (!immersive && !dragging.current) setExpanded(v => !v); }} aria-label={immersive ? "沉浸模式额度" : "展开 Codex 额度"}>
-      <span className="bar-identity"><i className={`live-dot quota-dot ${error ? "live-dot--error" : ""} ${topQuota?.temperature.critical ? "quota-dot--pulse" : ""}`} style={!error && topQuota ? { "--quota-color": topQuota.temperature.color } as React.CSSProperties : undefined} /><span className="brand-orbit" aria-hidden="true" /><b>Codex</b></span><span className="bar-summary">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : topQuota ? <span className="bar-summary__value"><span className={topQuota.temperature.urgent ? "quota-value--urgent" : ""} style={topQuota.temperature.urgent ? { "--quota-color": topQuota.temperature.color } as React.CSSProperties : undefined}>{topQuota.prefix}{Math.round(topQuota.quota.remaining_percent)}%</span> · {compactQuotaTime(topQuota.quota.reset_after_seconds)}</span> : "—"}</span>
+      <span className="bar-identity"><i className={`live-dot quota-dot ${error ? "live-dot--error" : ""} ${topQuota?.temperature.critical ? "quota-dot--pulse" : ""}`} style={!error && topQuota ? { "--quota-color": topQuota.temperature.color } as React.CSSProperties : undefined} /><span className="brand-orbit" aria-hidden="true" /><b>Codex</b></span><span className="bar-summary">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : topQuota ? <span className="bar-summary__value"><span className={topQuota.temperature.urgent ? "quota-value--urgent" : ""} style={topQuota.temperature.urgent ? { "--quota-color": topQuota.temperature.color } as React.CSSProperties : undefined}>{Math.round(topQuota.quota.remaining_percent)}%</span> · {compactTime(topQuota.quota.reset_after_seconds)}</span> : "—"}</span>
     </button>
   </main>;
 }
