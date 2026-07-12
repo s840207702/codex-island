@@ -119,9 +119,10 @@ function App() {
   const immersiveCandidate = useRef<boolean | null>(null);
   const lastWindowBounds = useRef("");
   const islandRef = useRef<HTMLElement>(null);
-  const barRef = useRef<HTMLButtonElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const dragOrigin = useRef<{ x: number; y: number } | null>(null);
   const dragging = useRef(false);
+  const cursorInsideIsland = useRef(false);
 
   const refresh = async () => {
     setLoading(true);
@@ -243,18 +244,6 @@ function App() {
     ]).then(([hover, pin]) => { disposeHover = hover; disposePin = pin; });
     return () => { disposeHover?.(); disposePin?.(); };
   }, []);
-  useEffect(() => {
-    if (isDetailWindow || !expanded || pinned || immersive) return;
-    const checkCursor = () => {
-      void invoke<boolean>("is_cursor_over_island").then((overIsland) => {
-        if (overIsland) { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); collapseTimer.current = null; }
-        else closeIslandLater();
-      }).catch(() => undefined);
-    };
-    checkCursor();
-    const timer = window.setInterval(checkCursor, 90);
-    return () => window.clearInterval(timer);
-  }, [expanded, pinned, immersive]);
   const topQuota = useMemo(() => {
     if (!usage) return null;
     return { quota: usage.primary, temperature: quotaTemperature(usage.primary.remaining_percent) };
@@ -272,8 +261,31 @@ function App() {
         setClosing(true); void emit("codex-island-detail-closing", true);
         shrinkTimer.current = window.setTimeout(() => { setExpanded(false); setClosing(false); shrinkTimer.current = null; }, 185);
       }).catch(() => { collapseTimer.current = null; });
-    }, 220);
+    }, 420);
   };
+  useEffect(() => {
+    if (isDetailWindow) return;
+    const checkCursor = () => {
+      if (immersive) { cursorInsideIsland.current = false; return; }
+      void invoke<boolean>("is_cursor_over_island").then((overIsland) => {
+        if (overIsland) {
+          const entered = !cursorInsideIsland.current;
+          cursorInsideIsland.current = true;
+          if (collapseTimer.current) window.clearTimeout(collapseTimer.current);
+          collapseTimer.current = null;
+          if (entered || !expanded) openIsland();
+          return;
+        }
+        if (cursorInsideIsland.current) {
+          cursorInsideIsland.current = false;
+          closeIslandLater();
+        }
+      }).catch(() => undefined);
+    };
+    checkCursor();
+    const timer = window.setInterval(checkCursor, 80);
+    return () => window.clearInterval(timer);
+  }, [expanded, immersive, pinned]);
   const keepSettingsOpen = () => { if (settingsTimer.current) window.clearTimeout(settingsTimer.current); };
   const hideSettingsLater = () => { settingsTimer.current = window.setTimeout(() => { setSettingsOpen(false); settingsTimer.current = null; }, 480); };
   const changeOpacity = (value: number) => { setOpacity(value); void emit("codex-island-opacity-change", value); };
@@ -305,9 +317,9 @@ function App() {
     </article>;
   if (isDetailWindow) return <main className="detail-hitbox" onPointerEnter={() => void emit("codex-island-detail-hover", true)} onPointerLeave={() => void emit("codex-island-detail-hover", false)}>{detail}</main>;
   return <main ref={islandRef} className={`island-shell ${expanded ? "island-shell--active" : ""} ${immersive ? "island-shell--immersive" : ""}`} onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onMouseDownCapture={beginPotentialDrag} onMouseMoveCapture={continuePotentialDrag} onMouseUpCapture={finishPotentialDrag}>
-    <button ref={barRef} className="island-bar" onClick={() => { if (!immersive && !dragging.current) setExpanded(v => !v); }} aria-label={immersive ? copy.immersiveQuota : copy.openQuota}>
+    <div ref={barRef} className="island-bar" role="status" aria-label={immersive ? copy.immersiveQuota : copy.openQuota}>
       <span className="bar-identity"><i className={`live-dot quota-dot ${error ? "live-dot--error" : ""} ${topQuota?.temperature.critical ? "quota-dot--pulse" : ""}`} style={!error && topQuota ? { "--quota-color": topQuota.temperature.color } as React.CSSProperties : undefined} /><span className="brand-orbit" aria-hidden="true" /><b>Codex</b></span><span className="bar-summary">{topQuota ? <span className="bar-summary__value"><span className="quota-value" style={{ "--quota-color": topQuota.temperature.color } as React.CSSProperties}>{Math.round(topQuota.quota.remaining_percent)}%</span> · {compactTime(topQuota.quota.reset_after_seconds)}</span> : "—"}</span>
-    </button>
+    </div>
   </main>;
 }
 createRoot(document.getElementById("root")!).render(<App />);
