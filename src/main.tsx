@@ -89,10 +89,10 @@ function App() {
       immersiveTimer.current = window.setTimeout(() => {
         setImmersive(active);
         if (active) { setExpanded(false); setSettingsOpen(false); }
-      }, active ? 680 : 420);
+      }, active ? 260 : 160);
     };
     const check = () => { void invoke<ImmersiveState>("get_immersive_state").then((state) => schedule(state.active)).catch(() => schedule(false)); };
-    check(); const timer = window.setInterval(check, 900);
+    check(); const timer = window.setInterval(check, 260);
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
