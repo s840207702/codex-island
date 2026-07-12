@@ -259,9 +259,9 @@ function App() {
         collapseTimer.current = null;
         if (overIsland) return;
         setClosing(true); void emit("codex-island-detail-closing", true);
-        shrinkTimer.current = window.setTimeout(() => { setExpanded(false); setClosing(false); shrinkTimer.current = null; }, 185);
+        shrinkTimer.current = window.setTimeout(() => { setExpanded(false); setClosing(false); shrinkTimer.current = null; }, 165);
       }).catch(() => { collapseTimer.current = null; });
-    }, 420);
+    }, 150);
   };
   useEffect(() => {
     if (isDetailWindow) return;
