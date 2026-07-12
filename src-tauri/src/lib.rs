@@ -6,6 +6,9 @@ use tauri::{LogicalPosition, LogicalSize, Manager, Position, Size, WebviewWindow
 #[derive(Serialize)] struct Usage { primary: Window, secondary: Window, plan_type: String, plan_multiplier: Option<String>, reset_credits: Option<i64>, reset_credit_expires_at: Option<Value>, credit_balance: Option<f64>, has_credits: bool, fetched_at: String }
 #[derive(Deserialize)] struct Auth { tokens: Tokens }
 #[derive(Deserialize)] struct Tokens { access_token: String, account_id: Option<String> }
+#[derive(Serialize, Deserialize)] struct SavedWindowPosition { x: f64, y: f64 }
+
+fn position_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("window-position.json")) }
 
 fn parse_window(v: &Value) -> Result<Window, String> {
     let used = v.get("used_percent").and_then(Value::as_f64).unwrap_or(0.0).clamp(0.0, 100.0);
@@ -28,6 +31,13 @@ fn center_window(window: &WebviewWindow, width: f64, height: f64) -> Result<(), 
     window.set_position(Position::Logical(LogicalPosition::new(position.x + (size.width - width) / 2.0, position.y + 6.0))).map_err(|e| e.to_string())?;
     window.set_size(Size::Logical(LogicalSize::new(width, height))).map_err(|e| e.to_string())
 }
+fn restore_window_position(window: &WebviewWindow, width: f64, height: f64) -> Result<(), String> {
+    let restored = position_file().and_then(|path| std::fs::read_to_string(path).ok()).and_then(|raw| serde_json::from_str::<SavedWindowPosition>(&raw).ok());
+    if let Some(saved) = restored {
+        window.set_position(Position::Logical(LogicalPosition::new(saved.x, saved.y))).map_err(|e| e.to_string())?;
+        window.set_size(Size::Logical(LogicalSize::new(width, height))).map_err(|e| e.to_string())
+    } else { center_window(window, width, height) }
+}
 #[tauri::command]
 async fn fetch_usage() -> Result<Usage, String> {
     let path = dirs::home_dir().ok_or("无法定位用户目录")?.join(".codex").join("auth.json");
@@ -47,7 +57,7 @@ async fn fetch_usage() -> Result<Usage, String> {
 }
 fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string() }
 #[tauri::command] fn set_expanded(window: WebviewWindow, expanded: bool) -> Result<(), String> {
-    // The horizontal anchor never changes: only the height grows or collapses.
+    // Resizing leaves the user-selected window position unchanged.
     let (width, height) = if expanded { (540, 420) } else { (540, 64) };
     // The React layout uses CSS pixels. Logical sizing keeps that layout stable
     // at 100%, 125%, 150%, and 200% Windows DPI scaling.
@@ -55,5 +65,12 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
     window.set_size(Size::Logical(LogicalSize::new(width as f64, height as f64))).map_err(|e| e.to_string())?;
     Ok(())
 }
+#[tauri::command] fn save_window_position(window: WebviewWindow) -> Result<(), String> {
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let position = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+    let path = position_file().ok_or("无法定位应用设置目录")?;
+    if let Some(parent) = path.parent() { std::fs::create_dir_all(parent).map_err(|e| e.to_string())?; }
+    std::fs::write(path, serde_json::to_string(&SavedWindowPosition { x: position.x, y: position.y }).map_err(|e| e.to_string())?).map_err(|e| e.to_string())
+}
 #[tauri::command] fn exit_app(app: tauri::AppHandle) { app.exit(0); }
-pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| { if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = center_window(&window, 540.0, 64.0); } Ok(()) }).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
+pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| { if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = restore_window_position(&window, 540.0, 64.0); } Ok(()) }).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, save_window_position, exit_app]).run(tauri::generate_context!()).expect("error while running Codex Island"); }

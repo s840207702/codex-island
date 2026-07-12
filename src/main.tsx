@@ -64,6 +64,7 @@ function App() {
   const collapseTimer = useRef<number | null>(null);
   const shrinkTimer = useRef<number | null>(null);
   const settingsTimer = useRef<number | null>(null);
+  const positionTimer = useRef<number | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -73,12 +74,20 @@ function App() {
   };
   useEffect(() => { void refresh(); }, []);
   useEffect(() => { const ms = failures.current === 0 ? 60_000 : Math.min(30 * 60_000, 30_000 * 2 ** (failures.current - 1)); const timer = window.setTimeout(refresh, ms); return () => window.clearTimeout(timer); }, [usage, stale]);
-  useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); if (settingsTimer.current) window.clearTimeout(settingsTimer.current); }, []);
+  useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); if (settingsTimer.current) window.clearTimeout(settingsTimer.current); if (positionTimer.current) window.clearTimeout(positionTimer.current); }, []);
   useEffect(() => { localStorage.setItem("quota-island-style", style); }, [style]);
   // Pinning only controls auto-collapse. The island itself stays above other apps.
   useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); }, [pinned]);
   useEffect(() => { localStorage.setItem("codex-island-opacity", String(opacity)); document.documentElement.style.setProperty("--island-opacity", String(opacity / 100)); }, [opacity]);
   useEffect(() => { invoke("set_expanded", { expanded }).catch(() => undefined); }, [expanded]);
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    void getCurrentWindow().onMoved(() => {
+      if (positionTimer.current) window.clearTimeout(positionTimer.current);
+      positionTimer.current = window.setTimeout(() => { void invoke("save_window_position"); }, 240);
+    }).then((dispose) => { unlisten = dispose; });
+    return () => { unlisten?.(); };
+  }, []);
   const topText = useMemo(() => usage ? `${Math.round(usage.primary.remaining_percent)}% · ${compactTime(usage.primary.reset_after_seconds)}` : "—", [usage]);
   const quit = () => invoke("exit_app").catch(() => undefined);
   const openExternal = (url: string) => { void openUrl(url).catch(() => undefined); };
@@ -87,8 +96,13 @@ function App() {
   const closeIslandLater = () => { if (!pinned) collapseTimer.current = window.setTimeout(() => { setClosing(true); shrinkTimer.current = window.setTimeout(() => { setExpanded(false); setClosing(false); shrinkTimer.current = null; }, 165); collapseTimer.current = null; }, 120); };
   const keepSettingsOpen = () => { if (settingsTimer.current) window.clearTimeout(settingsTimer.current); };
   const hideSettingsLater = () => { settingsTimer.current = window.setTimeout(() => { setSettingsOpen(false); settingsTimer.current = null; }, 480); };
-  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""}`}>
-    <button className="island-bar" onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onMouseDown={(event) => { if (event.button === 0) getCurrentWindow().startDragging(); }} onClick={() => setExpanded(v => !v)} aria-label="展开 Codex 额度">
+  const startWindowDrag = (event: React.MouseEvent<HTMLElement>) => {
+    const target = event.target as HTMLElement;
+    if (event.button !== 0 || target.closest("input, button:not(.island-bar), .confirm-dialog")) return;
+    void getCurrentWindow().startDragging();
+  };
+  return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""}`} onMouseDown={startWindowDrag}>
+    <button className="island-bar" onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onClick={() => setExpanded(v => !v)} aria-label="展开 Codex 额度">
       <i className={`live-dot ${error ? "live-dot--error" : ""}`} />
       <span className="brand-orbit" aria-hidden="true" />
       <b>Codex</b><span className="bar-summary">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : topText}</span>
