@@ -43,9 +43,11 @@ function App() {
   const [error, setError] = useState<string | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [opacity, setOpacity] = useState(() => Number(localStorage.getItem("codex-island-opacity") ?? "100"));
+  const [closing, setClosing] = useState(false);
   const [stale, setStale] = useState(false);
   const failures = useRef(0);
   const collapseTimer = useRef<number | null>(null);
+  const shrinkTimer = useRef<number | null>(null);
 
   const refresh = async () => {
     setLoading(true);
@@ -55,7 +57,7 @@ function App() {
   };
   useEffect(() => { void refresh(); }, []);
   useEffect(() => { const ms = failures.current === 0 ? 60_000 : Math.min(30 * 60_000, 30_000 * 2 ** (failures.current - 1)); const timer = window.setTimeout(refresh, ms); return () => window.clearTimeout(timer); }, [usage, stale]);
-  useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); }, []);
+  useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); }, []);
   useEffect(() => { localStorage.setItem("quota-island-style", style); }, [style]);
   useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); invoke("set_pinned", { pinned }).catch(() => undefined); }, [pinned]);
   useEffect(() => { localStorage.setItem("codex-island-opacity", String(opacity)); document.documentElement.style.setProperty("--island-opacity", String(opacity / 100)); }, [opacity]);
@@ -63,15 +65,15 @@ function App() {
   const topText = useMemo(() => usage ? `${Math.round(usage.primary.remaining_percent)}% · ${compactTime(usage.primary.reset_after_seconds)}` : "正在同步", [usage]);
   const close = () => invoke("hide_window").catch(() => undefined);
 
-  const openIsland = () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); setExpanded(true); };
-  const closeIslandLater = () => { if (!pinned) collapseTimer.current = window.setTimeout(() => { setExpanded(false); collapseTimer.current = null; }, 120); };
+  const openIsland = () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); setClosing(false); setExpanded(true); };
+  const closeIslandLater = () => { if (!pinned) collapseTimer.current = window.setTimeout(() => { setClosing(true); shrinkTimer.current = window.setTimeout(() => { setExpanded(false); setClosing(false); shrinkTimer.current = null; }, 165); collapseTimer.current = null; }, 120); };
   return <main className={`island-shell ${expanded ? "island-shell--expanded" : ""}`} onPointerLeave={closeIslandLater} onPointerEnter={openIsland}>
     <button className="island-bar" onMouseDown={(event) => { if (event.button === 0) getCurrentWindow().startDragging(); }} onClick={() => setExpanded(v => !v)} aria-label="展开 Codex 额度">
       <i className={`live-dot ${error ? "live-dot--error" : ""}`} />
       <span className="brand-orbit" aria-hidden="true" />
       <b>Codex</b><span className="bar-summary">{topText}</span>
     </button>
-    {expanded && <article className="island-panel">
+    {expanded && <article className={`island-panel ${closing ? "island-panel--closing" : ""}`}>
       <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className="plan-label">{usage ? planLabel(usage.plan_type) : "—"}{usage?.plan_multiplier ? ` · ${usage.plan_multiplier}` : ""}</span></div><div className="controls">
         <div className="style-switch" role="group" aria-label="显示风格"><button className={style === "overview" ? "selected" : ""} onClick={() => setStyle("overview")}>概览</button><button className={style === "focus" ? "selected" : ""} onClick={() => setStyle("focus")}>专注</button></div>
         <button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => !v)} title={pinned ? "取消常驻" : "锁定常驻"}><Pin size={16} /></button><button className={`icon-button ${settingsOpen ? "icon-button--selected" : ""}`} onClick={() => setSettingsOpen(v => !v)} title="显示设置"><SlidersHorizontal size={16} /></button>
