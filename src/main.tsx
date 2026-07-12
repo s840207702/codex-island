@@ -90,6 +90,11 @@ function App() {
     finally { setLoading(false); }
   };
   useEffect(() => { void refresh(); }, []);
+  useEffect(() => {
+    const blockContextMenu = (event: MouseEvent) => event.preventDefault();
+    document.addEventListener("contextmenu", blockContextMenu);
+    return () => document.removeEventListener("contextmenu", blockContextMenu);
+  }, []);
   useEffect(() => { const ms = failures.current === 0 ? 60_000 : Math.min(30 * 60_000, 30_000 * 2 ** (failures.current - 1)); const timer = window.setTimeout(refresh, ms); return () => window.clearTimeout(timer); }, [usage, stale]);
   useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); if (settingsTimer.current) window.clearTimeout(settingsTimer.current); if (immersiveTimer.current) window.clearTimeout(immersiveTimer.current); }, []);
   // Pinning only controls auto-collapse. The island itself stays above other apps.
