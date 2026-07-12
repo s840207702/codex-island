@@ -46,11 +46,11 @@ async fn fetch_usage() -> Result<Usage, String> {
     Ok(Usage { primary: parse_window(limit.get("primary_window").ok_or("缺少短期额度")?)?, secondary: parse_window(limit.get("secondary_window").ok_or("缺少周额度")?)?, plan_type: body.get("plan_type").and_then(Value::as_str).unwrap_or("unknown").to_owned(), plan_multiplier: body.get("promo").and_then(|p| p.get("multiplier").or_else(|| p.get("rate_limit_multiplier"))).and_then(Value::as_str).map(str::to_owned), reset_credits: ["available_count", "availableCount", "remaining", "count"].iter().find_map(|key| reset.get(*key).and_then(Value::as_i64)), reset_credit_expires_at, credit_balance: credits.get("balance").and_then(Value::as_f64), has_credits: credits.get("has_credits").and_then(Value::as_bool).unwrap_or(false), fetched_at: chrono_like_now() })
 }
 fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string() }
-#[tauri::command] fn set_pinned(window: WebviewWindow, pinned: bool) -> Result<(), String> { window.set_always_on_top(pinned).map_err(|e| e.to_string()) }
 #[tauri::command] fn set_expanded(window: WebviewWindow, expanded: bool) -> Result<(), String> {
     let (width, height) = if expanded { (540, 446) } else { (300, 64) };
     // The React layout uses CSS pixels. Logical sizing keeps that layout stable
     // at 100%, 125%, 150%, and 200% Windows DPI scaling.
+    window.set_always_on_top(true).map_err(|e| e.to_string())?;
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
     let previous_size = window.outer_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
     let previous_position = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
@@ -59,4 +59,4 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
     window.set_position(Position::Logical(LogicalPosition::new(next_x, previous_position.y))).map_err(|e| e.to_string())
 }
 #[tauri::command] fn hide_window(window: WebviewWindow) -> Result<(), String> { window.hide().map_err(|e| e.to_string()) }
-pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| { if let Some(window) = app.get_webview_window("main") { let _ = center_window(&window, 300.0, 64.0); } Ok(()) }).invoke_handler(tauri::generate_handler![fetch_usage, set_pinned, set_expanded, hide_window]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
+pub fn run() { tauri::Builder::default().plugin(tauri_plugin_opener::init()).setup(|app| { if let Some(window) = app.get_webview_window("main") { let _ = window.set_always_on_top(true); let _ = center_window(&window, 300.0, 64.0); } Ok(()) }).invoke_handler(tauri::generate_handler![fetch_usage, set_expanded, hide_window]).run(tauri::generate_context!()).expect("error while running Codex Island"); }
