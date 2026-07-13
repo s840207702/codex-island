@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="480" viewBox="0 0 1200 480" role="img" aria-labelledby="title desc">
+  <title id="title">Codex Island</title>
+  <desc id="desc">A quiet desktop island for Codex weekly quota</desc>
+  <rect width="1200" height="480" rx="28" fill="#0b0f14"/>
+  <rect x="1" y="1" width="1198" height="478" rx="27" fill="none" stroke="#26303a" stroke-width="2"/>
+
+  <g transform="translate(76 84)">
+    <circle cx="30" cy="30" r="27" fill="#111820" stroke="#dfe7ef" stroke-width="3"/>
+    <circle cx="30" cy="30" r="12" fill="none" stroke="#dfe7ef" stroke-width="3" stroke-dasharray="50 20" transform="rotate(-38 30 30)"/>
+    <text x="0" y="112" fill="#f5f7fa" font-family="Segoe UI, Arial, sans-serif" font-size="54" font-weight="700">Codex Island</text>
+    <text x="0" y="158" fill="#95a2b1" font-family="Segoe UI, Arial, sans-serif" font-size="22">A quiet desktop island for Codex quota.</text>
+    <g transform="translate(0 208)" font-family="Segoe UI, Arial, sans-serif" font-size="16">
+      <rect width="132" height="38" rx="19" fill="#111820" stroke="#2b3742"/>
+      <circle cx="22" cy="19" r="5" fill="#53dc90"/>
+      <text x="38" y="25" fill="#cbd3dc">Local-first</text>
+      <rect x="146" width="116" height="38" rx="19" fill="#111820" stroke="#2b3742"/>
+      <text x="169" y="25" fill="#cbd3dc">Tauri 2</text>
+      <rect x="276" width="154" height="38" rx="19" fill="#111820" stroke="#2b3742"/>
+      <text x="298" y="25" fill="#cbd3dc">Windows · macOS</text>
+    </g>
+  </g>
+
+  <g transform="translate(690 138)">
+    <rect width="420" height="94" rx="47" fill="#070a0e" stroke="#28323c" stroke-width="2"/>
+    <circle cx="46" cy="47" r="6" fill="#53dc90"/>
+    <circle cx="82" cy="47" r="15" fill="none" stroke="#dfe7ef" stroke-width="3"/>
+    <circle cx="82" cy="47" r="6" fill="none" stroke="#dfe7ef" stroke-width="3" stroke-dasharray="25 10" transform="rotate(-38 82 47)"/>
+    <text x="111" y="57" fill="#f5f7fa" font-family="Segoe UI, Arial, sans-serif" font-size="28" font-weight="700">Codex</text>
+    <text x="234" y="57" fill="#53dc90" font-family="Segoe UI, Arial, sans-serif" font-size="26" font-weight="600">98%</text>
+    <text x="296" y="57" fill="#8f9baa" font-family="Segoe UI, Arial, sans-serif" font-size="23">· 6d 21h</text>
+  </g>
+  <g transform="translate(730 266)" font-family="Segoe UI, Arial, sans-serif">
+    <text x="0" y="0" fill="#687583" font-size="14" letter-spacing="2">WEEKLY QUOTA</text>
+    <rect y="22" width="340" height="10" rx="5" fill="#202832"/>
+    <rect y="22" width="333" height="10" rx="5" fill="#53dc90"/>
+    <text x="0" y="72" fill="#dce3ea" font-size="18">Hover to inspect. Pin when needed.</text>
+  </g>
+</svg>
