@@ -4,14 +4,15 @@ use tauri::{menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu}, 
 use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_opener::OpenerExt;
 
-#[derive(Serialize)] struct Window { used_percent: f64, remaining_percent: f64, reset_after_seconds: i64, reset_at: Option<Value> }
-#[derive(Serialize)] struct Usage { weekly: Window, plan_type: String, plan_multiplier: Option<String>, reset_credits: Option<i64>, reset_credit_expires_at: Option<Value>, credit_balance: Option<f64>, has_credits: bool, fetched_at: String }
+#[derive(Clone, Serialize)] struct Window { used_percent: f64, remaining_percent: f64, reset_after_seconds: i64, reset_at: Option<Value> }
+#[derive(Clone, Serialize)] struct Usage { weekly: Window, plan_type: String, plan_multiplier: Option<String>, reset_credits: Option<i64>, reset_credit_expires_at: Option<Value>, credit_balance: Option<f64>, has_credits: bool, fetched_at: String }
 // Legacy dual-window response, retained while OpenAI's temporary 5-hour quota removal is in effect:
 // struct Usage { primary: Window, secondary: Window, ... }
 #[derive(Deserialize)] struct Auth { tokens: Tokens }
 #[derive(Deserialize)] struct Tokens { access_token: String, account_id: Option<String> }
 #[derive(Serialize, Deserialize)] struct SavedWindowPosition { x: f64, y: f64, #[serde(default)] user_moved: bool }
 #[derive(Serialize)] struct ImmersiveState { active: bool }
+#[derive(Default)] struct UsageCache(std::sync::Mutex<Option<Usage>>);
 
 fn position_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("window-position.json")) }
 fn language_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("language.txt")) }
@@ -83,7 +84,12 @@ fn restore_window_position(window: &WebviewWindow, width: f64, height: f64) -> R
     center_window(window, width, height)
 }
 #[tauri::command]
-async fn fetch_usage() -> Result<Usage, String> {
+async fn fetch_usage(window: WebviewWindow, cache: tauri::State<'_, UsageCache>) -> Result<Usage, String> {
+    // The main island owns network refreshes. The hidden detail WebView reads the
+    // same successful snapshot so WebView2 timer throttling cannot split the UI.
+    if window.label() == "panel" {
+        if let Some(usage) = cache.0.lock().ok().and_then(|slot| slot.clone()) { return Ok(usage); }
+    }
     let path = dirs::home_dir().ok_or("无法定位用户目录")?.join(".codex").join("auth.json");
     let auth: Auth = serde_json::from_str(&std::fs::read_to_string(path).map_err(|_| "未找到 Codex 登录态，请先登录 Codex")?).map_err(|_| "Codex 登录态格式无效")?;
     let client = reqwest::Client::new();
@@ -100,7 +106,9 @@ async fn fetch_usage() -> Result<Usage, String> {
     // Legacy dual-window mapping (restore if the 5-hour quota returns):
     // primary: parse_window(limit.get("primary_window").ok_or("缺少短期额度")?)?,
     // secondary: parse_window(limit.get("secondary_window").ok_or("缺少周额度")?)?,
-    Ok(Usage { weekly: parse_window(weekly_window(limit)?)?, plan_type: body.get("plan_type").and_then(Value::as_str).unwrap_or("unknown").to_owned(), plan_multiplier: body.get("promo").and_then(|p| p.get("multiplier").or_else(|| p.get("rate_limit_multiplier"))).and_then(Value::as_str).map(str::to_owned), reset_credits: ["available_count", "availableCount", "remaining", "count"].iter().find_map(|key| reset.get(*key).and_then(Value::as_i64)), reset_credit_expires_at, credit_balance: credits.get("balance").and_then(Value::as_f64), has_credits: credits.get("has_credits").and_then(Value::as_bool).unwrap_or(false), fetched_at: chrono_like_now() })
+    let usage = Usage { weekly: parse_window(weekly_window(limit)?)?, plan_type: body.get("plan_type").and_then(Value::as_str).unwrap_or("unknown").to_owned(), plan_multiplier: body.get("promo").and_then(|p| p.get("multiplier").or_else(|| p.get("rate_limit_multiplier"))).and_then(Value::as_str).map(str::to_owned), reset_credits: ["available_count", "availableCount", "remaining", "count"].iter().find_map(|key| reset.get(*key).and_then(Value::as_i64)), reset_credit_expires_at, credit_balance: credits.get("balance").and_then(Value::as_f64), has_credits: credits.get("has_credits").and_then(Value::as_bool).unwrap_or(false), fetched_at: chrono_like_now() };
+    if let Ok(mut slot) = cache.0.lock() { *slot = Some(usage.clone()); }
+    Ok(usage)
 }
 fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string() }
 #[tauri::command] fn set_expanded(window: WebviewWindow, expanded: bool, immersive: bool, content_width: Option<f64>, content_height: Option<f64>) -> Result<(), String> {
@@ -222,6 +230,7 @@ fn show_detail_panel(window: WebviewWindow) -> Result<(), String> {
     let panel = window.app_handle().get_webview_window("panel").ok_or("未找到详情窗口")?;
     position_detail_panel(&window, &panel)?;
     panel.show().map_err(|e| e.to_string())?;
+    let _ = panel.eval("window.dispatchEvent(new Event('codex-island-panel-shown')); ");
     // The details webview spends most of its lifetime hidden. Re-sync its
     // locale whenever it becomes visible so a missed background event can
     // never leave the pill and panel in different languages.
@@ -287,6 +296,7 @@ fn is_cursor_over_island() -> Result<bool, String> { Ok(false) }
 #[tauri::command] fn exit_app(app: tauri::AppHandle) { app.exit(0); }
 fn show_main_window(app: &tauri::AppHandle) { if let Some(window) = app.get_webview_window("main") { let _ = center_window(&window, 236.0, 46.0); let _ = window.show(); let _ = window.set_focus(); } }
 pub fn run() { tauri::Builder::default()
+    .manage(UsageCache::default())
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
     .setup(|app| {

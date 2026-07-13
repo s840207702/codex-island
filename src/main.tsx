@@ -138,11 +138,16 @@ function App() {
 
   const refresh = async () => {
     setLoading(true);
-    try { setUsage(isWeeklyPreview ? previewUsage : await invoke<Usage>("fetch_usage")); setError(null); setStale(false); failures.current = 0; }
+    try {
+      const nextUsage = isWeeklyPreview ? previewUsage : await invoke<Usage>("fetch_usage");
+      setUsage(nextUsage);
+      if (!isDetailWindow && !isWeeklyPreview) void emit("codex-island-usage-change", nextUsage);
+      setError(null); setStale(false); failures.current = 0;
+    }
     catch (e) { failures.current += 1; setError(e instanceof Error ? e.message : String(e)); setStale(Boolean(usage)); }
     finally { setLoading(false); }
   };
-  useEffect(() => { void refresh(); }, []);
+  useEffect(() => { if (!isDetailWindow) void refresh(); }, []);
   useEffect(() => {
     if (isWeeklyPreview) return;
     let active = true;
@@ -169,16 +174,20 @@ function App() {
     if (isWeeklyPreview) return;
     let disposeLanguage: (() => void) | undefined;
     let disposeRefresh: (() => void) | undefined;
+    let disposeUsage: (() => void) | undefined;
     const handleDomLanguage = (event: Event) => {
       const value = (event as CustomEvent<unknown>).detail;
       if (isLocale(value)) setLocale(value);
     };
     window.addEventListener("codex-island-language-dom-change", handleDomLanguage);
+    const handlePanelShown = () => { if (isDetailWindow) void refresh(); };
+    window.addEventListener("codex-island-panel-shown", handlePanelShown);
     void Promise.all([
       listen<string>("codex-island-language-change", (event) => { if (isLocale(event.payload)) setLocale(event.payload); }),
       listen("codex-island-refresh", () => void refresh()),
-    ]).then(([languageListener, refreshListener]) => { disposeLanguage = languageListener; disposeRefresh = refreshListener; });
-    return () => { window.removeEventListener("codex-island-language-dom-change", handleDomLanguage); disposeLanguage?.(); disposeRefresh?.(); };
+      listen<Usage>("codex-island-usage-change", (event) => { if (isDetailWindow) { setUsage(event.payload); setError(null); setStale(false); setLoading(false); } }),
+    ]).then(([languageListener, refreshListener, usageListener]) => { disposeLanguage = languageListener; disposeRefresh = refreshListener; disposeUsage = usageListener; });
+    return () => { window.removeEventListener("codex-island-language-dom-change", handleDomLanguage); window.removeEventListener("codex-island-panel-shown", handlePanelShown); disposeLanguage?.(); disposeRefresh?.(); disposeUsage?.(); };
   }, []);
   useEffect(() => { localStorage.setItem("codex-island-language", locale); document.documentElement.lang = locale; }, [locale]);
   useEffect(() => {
@@ -186,7 +195,12 @@ function App() {
     document.addEventListener("contextmenu", blockContextMenu);
     return () => document.removeEventListener("contextmenu", blockContextMenu);
   }, []);
-  useEffect(() => { const ms = failures.current === 0 ? 60_000 : Math.min(30 * 60_000, 30_000 * 2 ** (failures.current - 1)); const timer = window.setTimeout(refresh, ms); return () => window.clearTimeout(timer); }, [usage, stale]);
+  useEffect(() => {
+    if (isDetailWindow) return;
+    const ms = failures.current === 0 ? 60_000 : Math.min(30 * 60_000, 30_000 * 2 ** (failures.current - 1));
+    const timer = window.setTimeout(refresh, ms);
+    return () => window.clearTimeout(timer);
+  }, [usage, stale]);
   useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); if (settingsTimer.current) window.clearTimeout(settingsTimer.current); if (immersiveTimer.current) window.clearTimeout(immersiveTimer.current); }, []);
   // Pinning only controls auto-collapse. The island itself stays above other apps.
   useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); }, [pinned]);
