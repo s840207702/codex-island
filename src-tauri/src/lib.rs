@@ -5,7 +5,9 @@ use tauri_plugin_autostart::ManagerExt as AutostartManagerExt;
 use tauri_plugin_opener::OpenerExt;
 
 #[derive(Serialize)] struct Window { used_percent: f64, remaining_percent: f64, reset_after_seconds: i64, reset_at: Option<Value> }
-#[derive(Serialize)] struct Usage { primary: Window, secondary: Window, plan_type: String, plan_multiplier: Option<String>, reset_credits: Option<i64>, reset_credit_expires_at: Option<Value>, credit_balance: Option<f64>, has_credits: bool, fetched_at: String }
+#[derive(Serialize)] struct Usage { weekly: Window, plan_type: String, plan_multiplier: Option<String>, reset_credits: Option<i64>, reset_credit_expires_at: Option<Value>, credit_balance: Option<f64>, has_credits: bool, fetched_at: String }
+// Legacy dual-window response, retained while OpenAI's temporary 5-hour quota removal is in effect:
+// struct Usage { primary: Window, secondary: Window, ... }
 #[derive(Deserialize)] struct Auth { tokens: Tokens }
 #[derive(Deserialize)] struct Tokens { access_token: String, account_id: Option<String> }
 #[derive(Serialize, Deserialize)] struct SavedWindowPosition { x: f64, y: f64, #[serde(default)] user_moved: bool }
@@ -50,6 +52,14 @@ fn parse_window(v: &Value) -> Result<Window, String> {
     let used = v.get("used_percent").and_then(Value::as_f64).unwrap_or(0.0).clamp(0.0, 100.0);
     Ok(Window { used_percent: used, remaining_percent: 100.0 - used, reset_after_seconds: v.get("reset_after_seconds").and_then(Value::as_i64).unwrap_or(0), reset_at: v.get("reset_at").cloned() })
 }
+fn weekly_window(limit: &Value) -> Result<&Value, String> {
+    [limit.get("primary_window"), limit.get("secondary_window")]
+        .into_iter()
+        .flatten()
+        .filter(|window| !window.is_null())
+        .max_by_key(|window| window.get("limit_window_seconds").and_then(Value::as_i64).unwrap_or(0))
+        .ok_or_else(|| "缺少周额度".to_owned())
+}
 fn find_expiry(value: &Value) -> Option<Value> {
     match value {
         Value::Object(map) => {
@@ -87,7 +97,10 @@ async fn fetch_usage() -> Result<Usage, String> {
     if let Some(id) = body.get("account_id").and_then(Value::as_str) { reset_request = reset_request.header("ChatGPT-Account-ID", id); }
     let reset_detail = match reset_request.send().await { Ok(response) => match response.error_for_status() { Ok(response) => response.json::<Value>().await.ok(), Err(_) => None }, Err(_) => None };
     let reset_credit_expires_at = reset_detail.as_ref().and_then(find_expiry).or_else(|| find_expiry(reset));
-    Ok(Usage { primary: parse_window(limit.get("primary_window").ok_or("缺少短期额度")?)?, secondary: parse_window(limit.get("secondary_window").ok_or("缺少周额度")?)?, plan_type: body.get("plan_type").and_then(Value::as_str).unwrap_or("unknown").to_owned(), plan_multiplier: body.get("promo").and_then(|p| p.get("multiplier").or_else(|| p.get("rate_limit_multiplier"))).and_then(Value::as_str).map(str::to_owned), reset_credits: ["available_count", "availableCount", "remaining", "count"].iter().find_map(|key| reset.get(*key).and_then(Value::as_i64)), reset_credit_expires_at, credit_balance: credits.get("balance").and_then(Value::as_f64), has_credits: credits.get("has_credits").and_then(Value::as_bool).unwrap_or(false), fetched_at: chrono_like_now() })
+    // Legacy dual-window mapping (restore if the 5-hour quota returns):
+    // primary: parse_window(limit.get("primary_window").ok_or("缺少短期额度")?)?,
+    // secondary: parse_window(limit.get("secondary_window").ok_or("缺少周额度")?)?,
+    Ok(Usage { weekly: parse_window(weekly_window(limit)?)?, plan_type: body.get("plan_type").and_then(Value::as_str).unwrap_or("unknown").to_owned(), plan_multiplier: body.get("promo").and_then(|p| p.get("multiplier").or_else(|| p.get("rate_limit_multiplier"))).and_then(Value::as_str).map(str::to_owned), reset_credits: ["available_count", "availableCount", "remaining", "count"].iter().find_map(|key| reset.get(*key).and_then(Value::as_i64)), reset_credit_expires_at, credit_balance: credits.get("balance").and_then(Value::as_f64), has_credits: credits.get("has_credits").and_then(Value::as_bool).unwrap_or(false), fetched_at: chrono_like_now() })
 }
 fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string() }
 #[tauri::command] fn set_expanded(window: WebviewWindow, expanded: bool, immersive: bool, content_width: Option<f64>, content_height: Option<f64>) -> Result<(), String> {
@@ -99,7 +112,10 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
         (520.0, 64.0)
     } else {
         let (fallback_width, fallback_height) = if expanded { (520.0, 397.0) } else { (236.0, 46.0) };
-        (content_width.unwrap_or(fallback_width), content_height.unwrap_or(fallback_height))
+        (
+            content_width.filter(|value| *value >= 100.0).unwrap_or(fallback_width),
+            content_height.filter(|value| *value >= 30.0).unwrap_or(fallback_height),
+        )
     };
     // The React layout uses CSS pixels. Logical sizing keeps that layout stable
     // at 100%, 125%, 150%, and 200% Windows DPI scaling.

@@ -9,7 +9,9 @@ import "./styles.css";
 import "./overrides.css";
 
 type WindowData = { used_percent: number; remaining_percent: number; reset_after_seconds: number; reset_at?: number | string | null };
-type Usage = { primary: WindowData; secondary: WindowData; plan_type: string; plan_multiplier?: string | null; reset_credits?: number | null; reset_credit_expires_at?: number | string | null; credit_balance?: number | null; has_credits: boolean; fetched_at: string };
+type Usage = { weekly: WindowData; plan_type: string; plan_multiplier?: string | null; reset_credits?: number | null; reset_credit_expires_at?: number | string | null; credit_balance?: number | null; has_credits: boolean; fetched_at: string };
+// Legacy dual-window fields, retained for a possible 5-hour quota restoration:
+// type Usage = { primary: WindowData; secondary: WindowData; ... };
 type ImmersiveState = { active: boolean };
 type QuotaTemperature = { color: string; urgent: boolean; critical: boolean };
 const supportedLocales = ["zh-CN", "zh-TW", "en", "ja", "ko", "es", "fr", "de", "pt-BR", "ru"] as const;
@@ -32,11 +34,20 @@ const translations: Record<Locale, AppCopy> = {
   "pt-BR": { resetAfter: time => `Redefine em ${time}`, todayReset: time => `Redefine hoje às ${time}`, tomorrowReset: time => `Redefine amanhã às ${time}`, willReset: time => `Redefine em ${time}`, earliestExpiry: time => `Expira primeiro em ${time}`, remaining: "restante", github: "Ver Codex Island no GitHub", toolbox: "Abrir Feige Toolbox", pin: "Manter aberto", unpin: "Parar de manter aberto", opacity: "Opacidade da janela", syncUnavailable: "Não foi possível sincronizar", retry: "Tentar novamente", fiveHours: "5 horas", thisWeek: "Esta semana", staleRetry: "Últimos dados · tentando novamente", synced: "OpenAI · sincronizado", resetCredits: "Redefinições", refresh: "Atualizar agora", exit: "Sair do Codex Island", exitConfirm: "Confirmar saída", exitQuestion: "Sair completamente do Codex Island?", exitBody: "A sincronização e a ilha flutuante serão encerradas.", cancel: "Cancelar", exitApp: "Sair", immersiveQuota: "Cota imersiva", openQuota: "Abrir cota do Codex" },
   ru: { resetAfter: time => `Сброс через ${time}`, todayReset: time => `Сброс сегодня в ${time}`, tomorrowReset: time => `Сброс завтра в ${time}`, willReset: time => `Сброс ${time}`, earliestExpiry: time => `Ближайшее истечение ${time}`, remaining: "осталось", github: "Открыть Codex Island на GitHub", toolbox: "Открыть Feige Toolbox", pin: "Оставить открытым", unpin: "Не оставлять открытым", opacity: "Прозрачность окна", syncUnavailable: "Не удалось синхронизировать", retry: "Повторить", fiveHours: "5 часов", thisWeek: "Эта неделя", staleRetry: "Последние данные · повтор", synced: "OpenAI · синхронизировано", resetCredits: "Сбросы", refresh: "Обновить", exit: "Выйти из Codex Island", exitConfirm: "Подтверждение выхода", exitQuestion: "Полностью закрыть Codex Island?", exitBody: "Синхронизация и плавающий остров будут остановлены.", cancel: "Отмена", exitApp: "Выйти", immersiveQuota: "Иммерсивная квота", openQuota: "Открыть квоту Codex" },
 };
-const isDetailWindow = getCurrentWindow().label === "panel";
+const hasTauriRuntime = "__TAURI_INTERNALS__" in window;
+const previewMode = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("preview") : null;
+const isWeeklyPreview = previewMode === "weekly" || previewMode === "weekly-panel";
+const isDetailWindow = hasTauriRuntime ? getCurrentWindow().label === "panel" : previewMode === "weekly-panel";
+const previewUsage: Usage = { weekly: { used_percent: 2, remaining_percent: 98, reset_after_seconds: 595621, reset_at: 1784506992 }, plan_type: "pro", has_credits: false, fetched_at: "preview" };
+if (isWeeklyPreview) document.documentElement.classList.add("weekly-preview");
 
 const compactTime = (seconds: number) => {
   const minutes = Math.max(0, Math.floor(seconds / 60));
   return minutes >= 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${minutes}m`;
+};
+const compactWeeklyTime = (seconds: number) => {
+  const hours = Math.max(0, Math.floor(seconds / 3600));
+  return hours >= 24 ? `${Math.floor(hours / 24)}d ${hours % 24}h` : compactTime(seconds);
 };
 const mixColor = (from: [number, number, number], to: [number, number, number], amount: number) => `rgb(${from.map((channel, index) => Math.round(channel + (to[index] - channel) * amount)).join(" ")})`;
 const quotaTemperature = (remaining: number): QuotaTemperature => {
@@ -72,6 +83,7 @@ const weeklyResetText = (window: WindowData, locale: Locale, copy: AppCopy) => {
   return copy.willReset(new Intl.DateTimeFormat(locale, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false }).format(date));
 };
 const planLabel = (plan: string) => ({ plus: "Plus", pro: "Pro", business: "Business", team: "Team", enterprise: "Enterprise" }[plan.toLowerCase()] ?? plan.replace(/(^|[_-])(\w)/g, (_, __, char) => char.toUpperCase()));
+const paidPlanClass = (plan: string | undefined) => plan && ["plus", "pro"].includes(plan.toLowerCase()) ? "plan-label--gold" : "";
 const expiryText = (value: number | string | null | undefined, locale: Locale, copy: AppCopy) => { if (!value) return null; const date = new Date(typeof value === "number" ? value * 1000 : value); return Number.isNaN(date.getTime()) ? null : copy.earliestExpiry(new Intl.DateTimeFormat(locale, { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" }).format(date)); };
 
 function Ring({ label, window, period, locale, copy }: { label: string; window: WindowData; period: "short" | "weekly"; locale: Locale; copy: AppCopy }) {
@@ -126,12 +138,13 @@ function App() {
 
   const refresh = async () => {
     setLoading(true);
-    try { setUsage(await invoke<Usage>("fetch_usage")); setError(null); setStale(false); failures.current = 0; }
+    try { setUsage(isWeeklyPreview ? previewUsage : await invoke<Usage>("fetch_usage")); setError(null); setStale(false); failures.current = 0; }
     catch (e) { failures.current += 1; setError(e instanceof Error ? e.message : String(e)); setStale(Boolean(usage)); }
     finally { setLoading(false); }
   };
   useEffect(() => { void refresh(); }, []);
   useEffect(() => {
+    if (isWeeklyPreview) return;
     let active = true;
     const syncLocale = () => {
       void invoke<string>("get_app_language").then((value) => {
@@ -153,6 +166,7 @@ function App() {
     };
   }, []);
   useEffect(() => {
+    if (isWeeklyPreview) return;
     let disposeLanguage: (() => void) | undefined;
     let disposeRefresh: (() => void) | undefined;
     const handleDomLanguage = (event: Event) => {
@@ -178,6 +192,7 @@ function App() {
   useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); }, [pinned]);
   useEffect(() => { localStorage.setItem("codex-island-opacity", String(opacity)); document.documentElement.style.setProperty("--island-opacity", String(opacity / 100)); }, [opacity]);
   useEffect(() => {
+    if (isWeeklyPreview) return;
     let dispose: (() => void) | undefined;
     void listen<number>("codex-island-opacity-change", (event) => setOpacity(Math.max(65, Math.min(100, event.payload)))).then((unlisten) => { dispose = unlisten; });
     return () => dispose?.();
@@ -189,6 +204,9 @@ function App() {
     let frame = 0;
     const syncWindowBounds = () => {
       const bounds = target.getBoundingClientRect();
+      // Vite/React hot reload can briefly detach the measured node. Never let
+      // that transient zero-sized frame collapse the native Tauri window.
+      if (bounds.width < 100 || bounds.height < 30) return;
       const nextBounds = `${expanded}:${immersive}:${Math.ceil(bounds.width)}:${Math.ceil(bounds.height)}`;
       if (lastWindowBounds.current === nextBounds) return;
       lastWindowBounds.current = nextBounds;
@@ -200,7 +218,7 @@ function App() {
     return () => { window.cancelAnimationFrame(frame); observer.disconnect(); };
   }, [expanded, immersive]);
   useEffect(() => {
-    if (isDetailWindow) return;
+    if (isDetailWindow || isWeeklyPreview) return;
     const schedule = (active: boolean) => {
       if (immersiveCandidate.current === active) return;
       immersiveCandidate.current = active;
@@ -215,7 +233,7 @@ function App() {
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
-    if (isDetailWindow) return;
+    if (isDetailWindow || isWeeklyPreview) return;
     if (expanded && !immersive) {
       void emit("codex-island-detail-closing", false);
       void invoke("show_detail_panel").catch(() => undefined);
@@ -224,7 +242,7 @@ function App() {
     }
   }, [expanded, immersive]);
   useEffect(() => {
-    if (!isDetailWindow) return;
+    if (!isDetailWindow || isWeeklyPreview) return;
     let dispose: (() => void) | undefined;
     void listen<boolean>("codex-island-detail-closing", (event) => {
       setPanelClosing(event.payload);
@@ -235,7 +253,7 @@ function App() {
     return () => dispose?.();
   }, []);
   useEffect(() => {
-    if (isDetailWindow) return;
+    if (isDetailWindow || isWeeklyPreview) return;
     let disposeHover: (() => void) | undefined;
     let disposePin: (() => void) | undefined;
     void Promise.all([
@@ -246,7 +264,7 @@ function App() {
   }, []);
   const topQuota = useMemo(() => {
     if (!usage) return null;
-    return { quota: usage.primary, temperature: quotaTemperature(usage.primary.remaining_percent) };
+    return { quota: usage.weekly, temperature: quotaTemperature(usage.weekly.remaining_percent) };
   }, [usage]);
   const quit = () => invoke("exit_app").catch(() => undefined);
   const openExternal = (url: string) => { void openUrl(url).catch(() => undefined); };
@@ -264,7 +282,7 @@ function App() {
     }, 150);
   };
   useEffect(() => {
-    if (isDetailWindow) return;
+    if (isDetailWindow || isWeeklyPreview) return;
     const checkCursor = () => {
       if (immersive) { cursorInsideIsland.current = false; return; }
       void invoke<boolean>("is_cursor_over_island").then((overIsland) => {
@@ -307,18 +325,20 @@ function App() {
     window.setTimeout(() => { dragOrigin.current = null; dragging.current = false; }, 0);
   };
   const detail = <article className={`island-panel ${isDetailWindow ? "island-panel--window" : ""} ${closing || panelClosing ? "island-panel--closing" : ""}`}>
-      <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className="plan-label">{usage ? planLabel(usage.plan_type) : "—"}{usage?.plan_multiplier ? ` · ${usage.plan_multiplier}` : ""}</span></div><div className="controls">
+      <header><div className="panel-brand"><span className="brand-orbit" /><strong>Codex Island</strong><span className={`plan-label ${paidPlanClass(usage?.plan_type)}`}>{usage ? planLabel(usage.plan_type) : "—"}{usage?.plan_multiplier ? ` · ${usage.plan_multiplier}` : ""}</span></div><div className="controls">
         <button className="icon-button icon-button--external" onClick={() => openExternal("https://github.com/s840207702/codex-island")} title={copy.github} aria-label={copy.github}><Github size={16} /></button><button className="icon-button icon-button--avatar" onClick={() => openExternal("https://www.feige177.com")} title={copy.toolbox} aria-label={copy.toolbox}><img src="/feige-toolbox-avatar.png" alt="" /></button><span className="control-divider" aria-hidden="true" /><button className={`icon-button ${pinned ? "icon-button--selected" : ""}`} onClick={() => setPinned(v => { const next = !v; if (isDetailWindow) void emit("codex-island-detail-pin", next); return next; })} title={pinned ? copy.unpin : copy.pin}><Pin size={16} /></button><button className={`icon-button icon-button--opacity ${settingsOpen ? "icon-button--selected" : ""}`} onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} onClick={() => setSettingsOpen(v => !v)} title={copy.opacity} aria-label={copy.opacity}><Layers2 size={17} strokeWidth={1.8} /></button>
       </div></header>
       {settingsOpen && <section onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} className="settings-popover" aria-label={copy.opacity}><span>{opacity}%</span><input aria-label={copy.opacity} type="range" min="65" max="100" value={opacity} onChange={(event) => changeOpacity(Number(event.target.value))} /></section>}
-      {error && !usage ? <div className="error-state"><CircleAlert size={18} /><div><b>{copy.syncUnavailable}</b><span>{error}</span></div><button onClick={refresh}>{copy.retry}</button></div> : usage && <div className="overview"><Ring label={copy.fiveHours} window={usage.primary} period="short" locale={locale} copy={copy} /><Ring label={copy.thisWeek} window={usage.secondary} period="weekly" locale={locale} copy={copy} /></div>}
+      {/* Legacy dual-quota view, retained for a possible 5-hour quota restoration:
+          <div className="overview"><Ring label={copy.fiveHours} window={usage.primary} period="short" ... /><Ring label={copy.thisWeek} window={usage.secondary} period="weekly" ... /></div> */}
+      {error && !usage ? <div className="error-state"><CircleAlert size={18} /><div><b>{copy.syncUnavailable}</b><span>{error}</span></div><button onClick={refresh}>{copy.retry}</button></div> : usage && <div className="overview overview--weekly"><Ring label={copy.thisWeek} window={usage.weekly} period="weekly" locale={locale} copy={copy} /></div>}
       <footer className="status-rail"><span className="status-source">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : <i className={`live-dot ${stale ? "live-dot--error" : ""}`} />}{stale ? copy.staleRetry : !loading && copy.synced}</span>{usage?.reset_credits != null && <em className="reset-credit">{copy.resetCredits} {usage.reset_credits}{expiryText(usage.reset_credit_expires_at, locale, copy) ? ` · ${expiryText(usage.reset_credit_expires_at, locale, copy)}` : ""}</em>}<div><button className="icon-button" onClick={refresh} title={copy.refresh}><RefreshCw size={16} className={loading ? "spinning" : ""} /></button><button className="icon-button" onClick={() => setExitConfirmOpen(true)} title={copy.exit} aria-label={copy.exit}><X size={16} /></button></div></footer>
       {exitConfirmOpen && <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="exit-dialog-title"><div className="confirm-dialog__card"><span className="confirm-dialog__eyebrow">{copy.exitConfirm}</span><strong id="exit-dialog-title">{copy.exitQuestion}</strong><p>{copy.exitBody}</p><div><button className="text-action" onClick={() => setExitConfirmOpen(false)}>{copy.cancel}</button><button className="confirm-dialog__exit" onClick={quit}>{copy.exitApp}</button></div></div></section>}
     </article>;
   if (isDetailWindow) return <main className="detail-hitbox" onPointerEnter={() => void emit("codex-island-detail-hover", true)} onPointerLeave={() => void emit("codex-island-detail-hover", false)}>{detail}</main>;
   return <main ref={islandRef} className={`island-shell ${expanded ? "island-shell--active" : ""} ${immersive ? "island-shell--immersive" : ""}`} onPointerEnter={openIsland} onPointerLeave={closeIslandLater} onMouseDownCapture={beginPotentialDrag} onMouseMoveCapture={continuePotentialDrag} onMouseUpCapture={finishPotentialDrag}>
     <div ref={barRef} className="island-bar" role="status" aria-label={immersive ? copy.immersiveQuota : copy.openQuota}>
-      <span className="bar-identity"><i className={`live-dot quota-dot ${error ? "live-dot--error" : ""} ${topQuota?.temperature.critical ? "quota-dot--pulse" : ""}`} style={!error && topQuota ? { "--quota-color": topQuota.temperature.color } as React.CSSProperties : undefined} /><span className="brand-orbit" aria-hidden="true" /><b>Codex</b></span><span className="bar-summary">{topQuota ? <span className="bar-summary__value"><span className="quota-value" style={{ "--quota-color": topQuota.temperature.color } as React.CSSProperties}>{Math.round(topQuota.quota.remaining_percent)}%</span> · {compactTime(topQuota.quota.reset_after_seconds)}</span> : "—"}</span>
+      <span className="bar-identity"><i className={`live-dot quota-dot ${error ? "live-dot--error" : ""} ${topQuota?.temperature.critical ? "quota-dot--pulse" : ""}`} style={!error && topQuota ? { "--quota-color": topQuota.temperature.color } as React.CSSProperties : undefined} /><span className="brand-orbit" aria-hidden="true" /><b>Codex</b></span><span className="bar-summary">{topQuota ? <span className="bar-summary__value"><span className="quota-value" style={{ "--quota-color": topQuota.temperature.color } as React.CSSProperties}>{Math.round(topQuota.quota.remaining_percent)}%</span> · {compactWeeklyTime(topQuota.quota.reset_after_seconds)}</span> : "—"}</span>
     </div>
   </main>;
 }
