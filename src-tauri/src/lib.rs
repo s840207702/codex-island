@@ -159,7 +159,7 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
 }
 #[cfg(target_os = "windows")]
 #[tauri::command] fn get_immersive_state(_window: WebviewWindow) -> Result<ImmersiveState, String> {
-    use windows::Win32::{Foundation::RECT, Graphics::Gdi::{GetMonitorInfoW, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITORINFO}, System::Threading::GetCurrentProcessId, UI::WindowsAndMessaging::{GetClassNameW, GetForegroundWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsZoomed, GWL_STYLE, WS_CAPTION}};
+    use windows::Win32::{Foundation::{POINT, RECT}, Graphics::Gdi::{ClientToScreen, GetMonitorInfoW, MonitorFromWindow, MONITOR_DEFAULTTONEAREST, MONITORINFO}, System::Threading::GetCurrentProcessId, UI::WindowsAndMessaging::{GetClassNameW, GetClientRect, GetForegroundWindow, GetWindowLongW, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsZoomed, GWL_STYLE, WS_CAPTION}};
     unsafe {
         let foreground = GetForegroundWindow();
         if foreground.0.is_null() { return Ok(ImmersiveState { active: false }); }
@@ -188,7 +188,21 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
         let fills_monitor = foreground_rect.left <= screen.left + tolerance && foreground_rect.top <= screen.top + tolerance && foreground_rect.right >= screen.right - tolerance && foreground_rect.bottom >= screen.bottom - tolerance;
         let style = GetWindowLongW(foreground, GWL_STYLE) as u32;
         let is_frameless = (style & WS_CAPTION.0) == 0;
-        let is_full_screen = fills_monitor && (!IsZoomed(foreground).as_bool() || is_frameless);
+        // Chromium, Electron, and some players keep WS_CAPTION while in full
+        // screen. Their client area still fills the monitor, unlike a normal
+        // maximized window whose client area excludes chrome or the taskbar.
+        let mut client_rect = RECT::default();
+        let client_fills_monitor = if GetClientRect(foreground, &mut client_rect).is_ok() {
+            let mut client_top_left = POINT { x: client_rect.left, y: client_rect.top };
+            let mut client_bottom_right = POINT { x: client_rect.right, y: client_rect.bottom };
+            ClientToScreen(foreground, &mut client_top_left).as_bool()
+                && ClientToScreen(foreground, &mut client_bottom_right).as_bool()
+                && client_top_left.x <= screen.left + tolerance
+                && client_top_left.y <= screen.top + tolerance
+                && client_bottom_right.x >= screen.right - tolerance
+                && client_bottom_right.y >= screen.bottom - tolerance
+        } else { false };
+        let is_full_screen = fills_monitor && (!IsZoomed(foreground).as_bool() || is_frameless || client_fills_monitor);
         // Normal maximized and topmost windows must never hide the island.
         // Immersive mode is reserved for a genuine foreground full-screen surface.
         Ok(ImmersiveState { active: is_full_screen })
