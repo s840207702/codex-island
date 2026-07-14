@@ -35,6 +35,8 @@ const translations: Record<Locale, AppCopy> = {
   ru: { resetAfter: time => `Сброс через ${time}`, todayReset: time => `Сброс сегодня в ${time}`, tomorrowReset: time => `Сброс завтра в ${time}`, willReset: time => `Сброс ${time}`, earliestExpiry: time => `Ближайшее истечение ${time}`, remaining: "осталось", github: "Открыть Codex Island на GitHub", toolbox: "Открыть Feige Toolbox", pin: "Оставить открытым", unpin: "Не оставлять открытым", opacity: "Прозрачность окна", syncUnavailable: "Не удалось синхронизировать", retry: "Повторить", fiveHours: "5 часов", thisWeek: "Эта неделя", staleRetry: "Последние данные · повтор", synced: "OpenAI · синхронизировано", resetCredits: "Сбросы", refresh: "Обновить", exit: "Выйти из Codex Island", exitConfirm: "Подтверждение выхода", exitQuestion: "Полностью закрыть Codex Island?", exitBody: "Синхронизация и плавающий остров будут остановлены.", cancel: "Отмена", exitApp: "Выйти", immersiveQuota: "Иммерсивная квота", openQuota: "Открыть квоту Codex" },
 };
 const hasTauriRuntime = "__TAURI_INTERNALS__" in window;
+const isMacPlatform = /Macintosh|Mac OS X/.test(navigator.userAgent) || navigator.platform.toLowerCase().startsWith("mac");
+if (isMacPlatform) document.documentElement.classList.add("platform-macos");
 const previewMode = import.meta.env.DEV ? new URLSearchParams(window.location.search).get("preview") : null;
 const isWeeklyPreview = previewMode === "weekly" || previewMode === "weekly-panel";
 const isDetailWindow = hasTauriRuntime ? getCurrentWindow().label === "panel" : previewMode === "weekly-panel";
@@ -276,6 +278,12 @@ function App() {
     ]).then(([hover, pin]) => { disposeHover = hover; disposePin = pin; });
     return () => { disposeHover?.(); disposePin?.(); };
   }, []);
+  useEffect(() => {
+    if (isDetailWindow || isWeeklyPreview) return;
+    const handleWindowBlur = () => { if (expanded && !immersive) closeIslandLater(); };
+    window.addEventListener("blur", handleWindowBlur);
+    return () => window.removeEventListener("blur", handleWindowBlur);
+  }, [expanded, immersive, pinned]);
   const topQuota = useMemo(() => {
     if (!usage) return null;
     return { quota: usage.weekly, temperature: quotaTemperature(usage.weekly.remaining_percent) };

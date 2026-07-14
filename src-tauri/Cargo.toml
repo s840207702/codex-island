@@ -1,6 +1,6 @@
 [package]
 name = "codex-island"
-version = "1.0.2"
+version = "1.0.3"
 edition = "2021"
 
 [lib]
@@ -11,7 +11,7 @@ crate-type = ["cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon", "image-png"] }
+tauri = { version = "2", features = ["macos-private-api", "tray-icon", "image-png"] }
 tauri-plugin-opener = "2"
 tauri-plugin-autostart = "2"
 serde = { version = "1", features = ["derive"] }
@@ -24,3 +24,6 @@ windows = { version = "0.61", features = ["Win32_Foundation", "Win32_Graphics_Gd
 
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.25"
+core-foundation = "0.10"
+objc2 = "0.6.4"
+objc2-app-kit = "0.3.2"

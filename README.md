@@ -35,8 +35,8 @@
 ### 启动开发版
 
 ```powershell
-npm install
-npm run tauri dev
+pnpm install --frozen-lockfile
+pnpm tauri dev
 ```
 
 启动后，Codex Island 会出现在当前显示器顶部中央。将鼠标移入胶囊即可展开详情；托盘菜单提供显示、刷新、开机启动、语言切换和退出操作。
@@ -83,8 +83,14 @@ npm run tauri build
 ### macOS
 
 ```bash
-npm ci
-npm run tauri:mac
+pnpm install --frozen-lockfile
+pnpm tauri:mac
+```
+
+同时支持 Apple Silicon 与 Intel Mac 的 Universal 2 安装包：
+
+```bash
+pnpm tauri:mac:universal
 ```
 
 macOS 的环境、签名与公证说明见 [docs/macos-build.md](docs/macos-build.md)。

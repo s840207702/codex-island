@@ -75,8 +75,24 @@ fn find_expiry(value: &Value) -> Option<Value> {
 fn center_window(window: &WebviewWindow, width: f64, height: f64) -> Result<(), String> {
     let monitor = window.current_monitor().map_err(|e| e.to_string())?.ok_or("未找到显示器")?;
     let scale = monitor.scale_factor(); let size = monitor.size().to_logical::<f64>(scale); let position = monitor.position().to_logical::<f64>(scale);
-    window.set_position(Position::Logical(LogicalPosition::new(position.x + (size.width - width) / 2.0, position.y))).map_err(|e| e.to_string())?;
+    // Keep the resident capsule below macOS's menu-bar/notch safe area. The
+    // status-level window may overlay the menu bar, but the physical notch
+    // still occludes pixels in the center, so visible content must start at
+    // the monitor work-area origin on macOS.
+    let top = if cfg!(target_os = "macos") { monitor.work_area().position.to_logical::<f64>(scale).y } else { position.y };
+    window.set_position(Position::Logical(LogicalPosition::new(position.x + (size.width - width) / 2.0, top))).map_err(|e| e.to_string())?;
     window.set_size(Size::Logical(LogicalSize::new(width, height))).map_err(|e| e.to_string())
+}
+#[cfg(target_os = "macos")]
+fn set_island_window_level(window: &WebviewWindow) -> Result<(), String> {
+    window.with_webview(|webview| unsafe {
+        let native_window: &objc2_app_kit::NSWindow = &*webview.ns_window().cast();
+        native_window.setLevel(objc2_app_kit::NSStatusWindowLevel);
+    }).map_err(|e| e.to_string())
+}
+#[cfg(not(target_os = "macos"))]
+fn set_island_window_level(window: &WebviewWindow) -> Result<(), String> {
+    window.set_always_on_top(true).map_err(|e| e.to_string())
 }
 fn restore_window_position(window: &WebviewWindow, width: f64, height: f64) -> Result<(), String> {
     // Position is deliberately session-only: every new launch starts at the
@@ -127,7 +143,7 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
     };
     // The React layout uses CSS pixels. Logical sizing keeps that layout stable
     // at 100%, 125%, 150%, and 200% Windows DPI scaling.
-    window.set_always_on_top(true).map_err(|e| e.to_string())?;
+    set_island_window_level(&window)?;
     // Immersive mode is display-only: every pointer event goes to the app underneath.
     window.set_ignore_cursor_events(immersive).map_err(|e| e.to_string())?;
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
@@ -216,7 +232,75 @@ fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std
         Ok(ImmersiveState { active: is_full_screen })
     }
 }
-#[cfg(not(target_os = "windows"))]
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn get_immersive_state(window: WebviewWindow) -> Result<ImmersiveState, String> {
+    use core_foundation::{array::CFArray, base::{CFType, TCFType}, dictionary::CFDictionary, number::CFNumber};
+    use core_graphics::{geometry::CGRect, window::{CGWindowListCopyWindowInfo, kCGWindowBounds, kCGWindowLayer, kCGWindowListExcludeDesktopElements, kCGWindowListOptionOnScreenOnly, kCGWindowOwnerPID}};
+    use std::ffi::c_void;
+
+    fn value(dict: &CFDictionary, key: *const c_void) -> Option<CFType> {
+        let raw = *dict.find(key)?;
+        if raw.is_null() { return None; }
+        Some(unsafe { CFType::wrap_under_get_rule(raw as _) })
+    }
+
+    let scale = window.scale_factor().map_err(|e| e.to_string())?;
+    let island_position = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+    let island_size = window.outer_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
+    // The native main window widens to 520px while details or immersive visuals
+    // are active. Coverage must follow the actual resident capsule, not those
+    // transparent side gutters, so keep a stable 236x46 target around its center.
+    let capsule_left = island_position.x + (island_size.width - 236.0) / 2.0;
+    let capsule_top = island_position.y;
+    let capsule_right = capsule_left + 236.0;
+    let capsule_bottom = capsule_top + 46.0;
+
+    let options = kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements;
+    let raw_windows = unsafe { CGWindowListCopyWindowInfo(options, 0) };
+    if raw_windows.is_null() { return Ok(ImmersiveState { active: false }); }
+    let windows: CFArray<CFDictionary> = unsafe { TCFType::wrap_under_create_rule(raw_windows) };
+    let owner_key = unsafe { kCGWindowOwnerPID as *const c_void };
+    let layer_key = unsafe { kCGWindowLayer as *const c_void };
+    let bounds_key = unsafe { kCGWindowBounds as *const c_void };
+    let own_pid = std::process::id() as f64;
+
+    // Quartz is ordered front-to-back. Pick the first foreign layer-zero owner
+    // that has a window large enough to contain the whole capsule. This skips
+    // cursor/automation helper overlays while still allowing a small ordinary
+    // app window to trigger once it genuinely covers the capsule. Then consider
+    // all of that owner's windows because its first entry can be a title helper.
+    let foreground_pid = windows.iter().find_map(|candidate| {
+        let owner_pid = value(&candidate, owner_key)?.downcast::<CFNumber>()?.to_f64()?;
+        if (owner_pid - own_pid).abs() < 0.5 { return None; }
+        let layer = value(&candidate, layer_key)?.downcast::<CFNumber>()?.to_f64()?;
+        if layer.abs() > 0.5 { return None; }
+        let bounds = value(&candidate, bounds_key)?.downcast::<CFDictionary>()?;
+        let rect = CGRect::from_dict_representation(&bounds)?;
+        if rect.size.width < 236.0 || rect.size.height < 46.0 { return None; }
+        Some(owner_pid)
+    });
+    let Some(foreground_pid) = foreground_pid else { return Ok(ImmersiveState { active: false }); };
+
+    let tolerance = 1.5;
+    let active = windows.iter().any(|candidate| {
+        let Some(owner_pid) = value(&candidate, owner_key).and_then(|item| item.downcast::<CFNumber>()).and_then(|item| item.to_f64()) else { return false; };
+        if (owner_pid - foreground_pid).abs() >= 0.5 { return false; }
+        let Some(layer) = value(&candidate, layer_key).and_then(|item| item.downcast::<CFNumber>()).and_then(|item| item.to_f64()) else { return false; };
+        if layer.abs() > 0.5 { return false; }
+        let Some(bounds) = value(&candidate, bounds_key).and_then(|item| item.downcast::<CFDictionary>()) else { return false; };
+        let Some(rect) = CGRect::from_dict_representation(&bounds) else { return false; };
+        let right = rect.origin.x + rect.size.width;
+        let bottom = rect.origin.y + rect.size.height;
+        rect.origin.x <= capsule_left + tolerance
+            && rect.origin.y <= capsule_top + tolerance
+            && right >= capsule_right - tolerance
+            && bottom >= capsule_bottom - tolerance
+    });
+
+    Ok(ImmersiveState { active })
+}
+#[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 #[tauri::command] fn get_immersive_state() -> Result<ImmersiveState, String> { Ok(ImmersiveState { active: false }) }
 #[tauri::command] fn save_window_position(window: WebviewWindow) -> Result<(), String> {
     let scale = window.scale_factor().map_err(|e| e.to_string())?;
@@ -246,7 +330,7 @@ fn position_detail_panel(window: &WebviewWindow, panel: &WebviewWindow) -> Resul
     // its 9px breathing gap inside this window, but the pointer never falls
     // through an unhandled gap while travelling from pill to details.
     let position = LogicalPosition::new(main_position.x + (main_size.width - width) / 2.0, main_position.y + 46.0);
-    panel.set_always_on_top(true).map_err(|e| e.to_string())?;
+    set_island_window_level(&panel)?;
     panel.set_ignore_cursor_events(false).map_err(|e| e.to_string())?;
     panel.set_position(Position::Logical(position)).map_err(|e| e.to_string())?;
     panel.set_size(Size::Logical(LogicalSize::new(width, 351.0))).map_err(|e| e.to_string())
@@ -285,7 +369,16 @@ fn is_cursor_over_island(app: tauri::AppHandle) -> Result<bool, String> {
         let scale = window.scale_factor().map_err(|e| e.to_string())?;
         let position = window.outer_position().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
         let size = window.outer_size().map_err(|e| e.to_string())?.to_logical::<f64>(scale);
-        if cursor.x >= position.x && cursor.x < position.x + size.width && cursor.y >= position.y && cursor.y < position.y + size.height { return Ok(true); }
+        // When expanded, the main native window is widened to center the
+        // separate details window. Only the visible 236x46 capsule should
+        // keep the island open; its transparent side gutters must not count
+        // as a hover target on macOS.
+        let (left, top, width, height) = if label == "main" && size.width > 300.0 {
+            (position.x + (size.width - 236.0) / 2.0, position.y, 236.0, 46.0)
+        } else {
+            (position.x, position.y, size.width, size.height)
+        };
+        if cursor.x >= left && cursor.x < left + width && cursor.y >= top && cursor.y < top + height { return Ok(true); }
     }
     Ok(false)
 }
@@ -300,8 +393,10 @@ pub fn run() { tauri::Builder::default()
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
     .setup(|app| {
+    #[cfg(target_os = "macos")]
+    app.set_activation_policy(tauri::ActivationPolicy::Accessory);
     if let Some(window) = app.get_webview_window("main") {
-        let _ = window.set_always_on_top(true);
+        let _ = set_island_window_level(&window);
         let _ = restore_window_position(&window, 236.0, 46.0);
         let app_handle = app.handle().clone();
         window.on_window_event(move |event| {

@@ -1,13 +1,15 @@
 {
   "name": "codex-island",
   "private": true,
-  "version": "1.0.2",
+  "version": "1.0.3",
+  "packageManager": "pnpm@11.7.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "tauri": "tauri",
-    "tauri:mac": "tauri build --bundles app,dmg"
+    "tauri:mac": "tauri build --bundles app,dmg",
+    "tauri:mac:universal": "tauri build --target universal-apple-darwin --bundles app,dmg"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.8.0",
@@ -23,8 +25,5 @@
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.6.3",
     "vite": "^5.4.11"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": ["esbuild"]
   }
 }
