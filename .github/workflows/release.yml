@@ -1,0 +1,36 @@
+name: 跨平台构建与发布
+
+on:
+  workflow_dispatch:
+    inputs:
+      build-windows:
+        description: 构建 Windows NSIS 安装包
+        type: boolean
+        default: true
+      build-macos:
+        description: 构建 macOS Universal 2 DMG
+        type: boolean
+        default: true
+      build-linux:
+        description: 构建 Linux AppImage 和 deb
+        type: boolean
+        default: true
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  desktop:
+    uses: s840207702/cross-platform-release-workflows/.github/workflows/tauri-desktop.yml@v1
+    with:
+      build-windows: ${{ github.event_name == 'push' || inputs.build-windows }}
+      build-macos: ${{ github.event_name == 'push' || inputs.build-macos }}
+      build-linux: ${{ github.event_name == 'push' || inputs.build-linux }}
+      publish-release: ${{ github.event_name == 'push' }}
+      release-draft: false
+      release-name: Codex Island ${{ github.ref_name }}
+      release-body: Windows、macOS 与 Linux 安装包由 GitHub Actions 在各平台原生构建环境中自动生成。
+    secrets: inherit

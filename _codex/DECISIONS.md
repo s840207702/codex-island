@@ -11,3 +11,4 @@
 - 2026-07-14：macOS 沉浸模式复用共享前端状态机，但原生触发条件改为“前台应用的正常窗口完整覆盖实际 236×46 胶囊区域”；普通最大化和手动覆盖均可触发，窗口恢复、移开或仅部分相交时退出。Quartz 前台筛选会忽略尺寸不足以容纳胶囊的小型辅助浮层。Windows 保留原有全屏判定。
 - 2026-07-13：macOS 构建脚本统一覆盖并启动 `/Applications/Codex Island.app`，验证时要求仅有一个 `codex-island` 进程，避免构建包与安装包双实例重叠导致悬停展开后看似无法折叠。
 - 2026-07-14：公开仓库的产品截图必须来自 `/Applications/Codex Island.app` 真实运行窗口；`v1.0.3` Release 提供 Universal 2 DMG，并明确标注当前为 ad-hoc 签名、尚未公证。
+- 2026-07-14：跨平台打包统一调用 `s840207702/cross-platform-release-workflows@v1`；手动运行只生成 Actions Artifact，推送 `v*` 标签时由 Windows、macOS、Linux 原生 Runner 构建并在全部成功后发布同一个 Release。
