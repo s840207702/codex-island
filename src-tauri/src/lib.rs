@@ -12,7 +12,10 @@ use tauri_plugin_opener::OpenerExt;
 #[derive(Deserialize)] struct Tokens { access_token: String, account_id: Option<String> }
 #[derive(Serialize, Deserialize)] struct SavedWindowPosition { x: f64, y: f64, #[serde(default)] user_moved: bool }
 #[derive(Serialize)] struct ImmersiveState { active: bool }
-#[derive(Default)] struct UsageCache(std::sync::Mutex<Option<Usage>>);
+#[derive(Default)] struct UsageState {
+    cache: std::sync::Mutex<Option<Usage>>,
+    refresh_lock: tokio::sync::Mutex<()>,
+}
 
 fn position_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("window-position.json")) }
 fn language_file() -> Option<std::path::PathBuf> { dirs::config_dir().map(|dir| dir.join("codex-island").join("language.txt")) }
@@ -99,17 +102,14 @@ fn restore_window_position(window: &WebviewWindow, width: f64, height: f64) -> R
     // top-center of the active display, while in-session dragging remains free.
     center_window(window, width, height)
 }
-#[tauri::command]
-async fn fetch_usage(window: WebviewWindow, cache: tauri::State<'_, UsageCache>) -> Result<Usage, String> {
-    // The main island owns network refreshes. The hidden detail WebView reads the
-    // same successful snapshot so WebView2 timer throttling cannot split the UI.
-    if window.label() == "panel" {
-        if let Some(usage) = cache.0.lock().ok().and_then(|slot| slot.clone()) { return Ok(usage); }
-    }
+async fn request_usage() -> Result<Usage, String> {
     let path = dirs::home_dir().ok_or("无法定位用户目录")?.join(".codex").join("auth.json");
     let auth: Auth = serde_json::from_str(&std::fs::read_to_string(path).map_err(|_| "未找到 Codex 登录态，请先登录 Codex")?).map_err(|_| "Codex 登录态格式无效")?;
     let client = reqwest::Client::new();
-    let mut request = client.get("https://chatgpt.com/backend-api/wham/usage").bearer_auth(&auth.tokens.access_token).header("User-Agent", "CodexIsland/0.1 (local-only)");
+    let mut request = client.get("https://chatgpt.com/backend-api/wham/usage")
+        .bearer_auth(&auth.tokens.access_token)
+        .header("User-Agent", "CodexIsland/0.1 (local-only)")
+        .header("Cache-Control", "no-cache");
     if let Some(id) = auth.tokens.account_id { request = request.header("ChatGPT-Account-ID", id); }
     let body: Value = request.send().await.map_err(|_| "无法连接 OpenAI 额度接口")?.error_for_status().map_err(|e| format!("OpenAI 额度接口错误：{}", e.status().map(|x| x.as_u16()).unwrap_or(0)))?.json().await.map_err(|_| "OpenAI 返回的额度数据无法解析")?;
     let limit = body.get("rate_limit").ok_or("OpenAI 未返回额度窗口")?;
@@ -122,11 +122,61 @@ async fn fetch_usage(window: WebviewWindow, cache: tauri::State<'_, UsageCache>)
     // Legacy dual-window mapping (restore if the 5-hour quota returns):
     // primary: parse_window(limit.get("primary_window").ok_or("缺少短期额度")?)?,
     // secondary: parse_window(limit.get("secondary_window").ok_or("缺少周额度")?)?,
-    let usage = Usage { weekly: parse_window(weekly_window(limit)?)?, plan_type: body.get("plan_type").and_then(Value::as_str).unwrap_or("unknown").to_owned(), plan_multiplier: body.get("promo").and_then(|p| p.get("multiplier").or_else(|| p.get("rate_limit_multiplier"))).and_then(Value::as_str).map(str::to_owned), reset_credits: ["available_count", "availableCount", "remaining", "count"].iter().find_map(|key| reset.get(*key).and_then(Value::as_i64)), reset_credit_expires_at, credit_balance: credits.get("balance").and_then(Value::as_f64), has_credits: credits.get("has_credits").and_then(Value::as_bool).unwrap_or(false), fetched_at: chrono_like_now() };
-    if let Ok(mut slot) = cache.0.lock() { *slot = Some(usage.clone()); }
+    Ok(Usage { weekly: parse_window(weekly_window(limit)?)?, plan_type: body.get("plan_type").and_then(Value::as_str).unwrap_or("unknown").to_owned(), plan_multiplier: body.get("promo").and_then(|p| p.get("multiplier").or_else(|| p.get("rate_limit_multiplier"))).and_then(Value::as_str).map(str::to_owned), reset_credits: ["available_count", "availableCount", "remaining", "count"].iter().find_map(|key| reset.get(*key).and_then(Value::as_i64)), reset_credit_expires_at, credit_balance: credits.get("balance").and_then(Value::as_f64), has_credits: credits.get("has_credits").and_then(Value::as_bool).unwrap_or(false), fetched_at: chrono_like_now() })
+}
+async fn refresh_usage(app: &tauri::AppHandle) -> Result<Usage, String> {
+    let state = app.state::<UsageState>();
+    let _guard = state.refresh_lock.lock().await;
+    let usage = request_usage().await?;
+    if let Ok(mut slot) = state.cache.lock() { *slot = Some(usage.clone()); }
+    let _ = app.emit("codex-island-usage-change", usage.clone());
     Ok(usage)
 }
-fn chrono_like_now() -> String { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs().to_string() }
+fn retry_delay_seconds(failures: u32) -> u64 {
+    if failures == 0 { return 60; }
+    30_u64.saturating_mul(1_u64 << failures.saturating_sub(1).min(6)).min(30 * 60)
+}
+#[cfg(test)]
+mod usage_refresh_tests {
+    use super::retry_delay_seconds;
+
+    #[test]
+    fn refresh_delay_recovers_and_caps_backoff() {
+        assert_eq!(retry_delay_seconds(0), 60);
+        assert_eq!(retry_delay_seconds(1), 30);
+        assert_eq!(retry_delay_seconds(2), 60);
+        assert_eq!(retry_delay_seconds(3), 120);
+        assert_eq!(retry_delay_seconds(20), 30 * 60);
+    }
+}
+async fn run_usage_refresh_loop(app: tauri::AppHandle) {
+    let mut failures = 0_u32;
+    let mut next_attempt = unix_now_seconds().saturating_add(60);
+    loop {
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        let now = unix_now_seconds();
+        if now < next_attempt { continue; }
+        match refresh_usage(&app).await {
+            Ok(_) => failures = 0,
+            Err(error) => {
+                failures = failures.saturating_add(1);
+                let _ = app.emit("codex-island-usage-error", error);
+            }
+        }
+        next_attempt = unix_now_seconds().saturating_add(retry_delay_seconds(failures));
+    }
+}
+#[tauri::command]
+async fn fetch_usage(window: WebviewWindow, app: tauri::AppHandle, force: Option<bool>) -> Result<Usage, String> {
+    // The hidden detail WebView normally reads the shared snapshot. Its explicit
+    // refresh button passes force=true and performs a real network refresh.
+    if window.label() == "panel" && !force.unwrap_or(false) {
+        if let Some(usage) = app.state::<UsageState>().cache.lock().ok().and_then(|slot| slot.clone()) { return Ok(usage); }
+    }
+    refresh_usage(&app).await
+}
+fn unix_now_seconds() -> u64 { std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs() }
+fn chrono_like_now() -> String { unix_now_seconds().to_string() }
 #[tauri::command] fn set_expanded(window: WebviewWindow, expanded: bool, immersive: bool, content_width: Option<f64>, content_height: Option<f64>) -> Result<(), String> {
     // Resize tightly around the actual visible island while preserving its visual center.
     // Immersive mode only changes the inner visual capsule. Keeping the native window
@@ -389,7 +439,7 @@ fn is_cursor_over_island() -> Result<bool, String> { Ok(false) }
 #[tauri::command] fn exit_app(app: tauri::AppHandle) { app.exit(0); }
 fn show_main_window(app: &tauri::AppHandle) { if let Some(window) = app.get_webview_window("main") { let _ = center_window(&window, 236.0, 46.0); let _ = window.show(); let _ = window.set_focus(); } }
 pub fn run() { tauri::Builder::default()
-    .manage(UsageCache::default())
+    .manage(UsageState::default())
     .plugin(tauri_plugin_opener::init())
     .plugin(tauri_plugin_autostart::init(tauri_plugin_autostart::MacosLauncher::LaunchAgent, None))
     .setup(|app| {
@@ -408,6 +458,7 @@ pub fn run() { tauri::Builder::default()
         });
     }
     let language = read_language();
+    tauri::async_runtime::spawn(run_usage_refresh_loop(app.handle().clone()));
     let labels = tray_labels(&language);
     let show = CheckMenuItem::with_id(app, "show", labels.show, true, true, None::<&str>)?;
     let refresh = MenuItem::with_id(app, "refresh", labels.refresh, true, None::<&str>)?;

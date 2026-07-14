@@ -125,7 +125,7 @@ function App() {
     return isLocale(saved) ? saved : "zh-CN";
   });
   const copy = translations[locale];
-  const failures = useRef(0);
+  const hasUsage = useRef(false);
   const collapseTimer = useRef<number | null>(null);
   const shrinkTimer = useRef<number | null>(null);
   const settingsTimer = useRef<number | null>(null);
@@ -138,18 +138,18 @@ function App() {
   const dragging = useRef(false);
   const cursorInsideIsland = useRef(false);
 
-  const refresh = async () => {
+  const refresh = async (force = false) => {
     setLoading(true);
     try {
-      const nextUsage = isWeeklyPreview ? previewUsage : await invoke<Usage>("fetch_usage");
+      const nextUsage = isWeeklyPreview ? previewUsage : await invoke<Usage>("fetch_usage", { force });
+      hasUsage.current = true;
       setUsage(nextUsage);
-      if (!isDetailWindow && !isWeeklyPreview) void emit("codex-island-usage-change", nextUsage);
-      setError(null); setStale(false); failures.current = 0;
+      setError(null); setStale(false);
     }
-    catch (e) { failures.current += 1; setError(e instanceof Error ? e.message : String(e)); setStale(Boolean(usage)); }
+    catch (e) { setError(e instanceof Error ? e.message : String(e)); setStale(hasUsage.current); }
     finally { setLoading(false); }
   };
-  useEffect(() => { if (!isDetailWindow) void refresh(); }, []);
+  useEffect(() => { if (!isDetailWindow) void refresh(false); }, []);
   useEffect(() => {
     if (isWeeklyPreview) return;
     let active = true;
@@ -177,19 +177,21 @@ function App() {
     let disposeLanguage: (() => void) | undefined;
     let disposeRefresh: (() => void) | undefined;
     let disposeUsage: (() => void) | undefined;
+    let disposeUsageError: (() => void) | undefined;
     const handleDomLanguage = (event: Event) => {
       const value = (event as CustomEvent<unknown>).detail;
       if (isLocale(value)) setLocale(value);
     };
     window.addEventListener("codex-island-language-dom-change", handleDomLanguage);
-    const handlePanelShown = () => { if (isDetailWindow) void refresh(); };
+    const handlePanelShown = () => { if (isDetailWindow) void refresh(false); };
     window.addEventListener("codex-island-panel-shown", handlePanelShown);
     void Promise.all([
       listen<string>("codex-island-language-change", (event) => { if (isLocale(event.payload)) setLocale(event.payload); }),
-      listen("codex-island-refresh", () => void refresh()),
-      listen<Usage>("codex-island-usage-change", (event) => { if (isDetailWindow) { setUsage(event.payload); setError(null); setStale(false); setLoading(false); } }),
-    ]).then(([languageListener, refreshListener, usageListener]) => { disposeLanguage = languageListener; disposeRefresh = refreshListener; disposeUsage = usageListener; });
-    return () => { window.removeEventListener("codex-island-language-dom-change", handleDomLanguage); window.removeEventListener("codex-island-panel-shown", handlePanelShown); disposeLanguage?.(); disposeRefresh?.(); disposeUsage?.(); };
+      listen("codex-island-refresh", () => { if (!isDetailWindow) void refresh(true); }),
+      listen<Usage>("codex-island-usage-change", (event) => { hasUsage.current = true; setUsage(event.payload); setError(null); setStale(false); setLoading(false); }),
+      listen<string>("codex-island-usage-error", (event) => { setError(event.payload); setStale(hasUsage.current); setLoading(false); }),
+    ]).then(([languageListener, refreshListener, usageListener, usageErrorListener]) => { disposeLanguage = languageListener; disposeRefresh = refreshListener; disposeUsage = usageListener; disposeUsageError = usageErrorListener; });
+    return () => { window.removeEventListener("codex-island-language-dom-change", handleDomLanguage); window.removeEventListener("codex-island-panel-shown", handlePanelShown); disposeLanguage?.(); disposeRefresh?.(); disposeUsage?.(); disposeUsageError?.(); };
   }, []);
   useEffect(() => { localStorage.setItem("codex-island-language", locale); document.documentElement.lang = locale; }, [locale]);
   useEffect(() => {
@@ -197,12 +199,6 @@ function App() {
     document.addEventListener("contextmenu", blockContextMenu);
     return () => document.removeEventListener("contextmenu", blockContextMenu);
   }, []);
-  useEffect(() => {
-    if (isDetailWindow) return;
-    const ms = failures.current === 0 ? 60_000 : Math.min(30 * 60_000, 30_000 * 2 ** (failures.current - 1));
-    const timer = window.setTimeout(refresh, ms);
-    return () => window.clearTimeout(timer);
-  }, [usage, stale]);
   useEffect(() => () => { if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); if (settingsTimer.current) window.clearTimeout(settingsTimer.current); if (immersiveTimer.current) window.clearTimeout(immersiveTimer.current); }, []);
   // Pinning only controls auto-collapse. The island itself stays above other apps.
   useEffect(() => { localStorage.setItem("quota-island-pinned", String(pinned)); }, [pinned]);
@@ -353,8 +349,8 @@ function App() {
       {settingsOpen && <section onPointerEnter={keepSettingsOpen} onPointerLeave={hideSettingsLater} className="settings-popover" aria-label={copy.opacity}><span>{opacity}%</span><input aria-label={copy.opacity} type="range" min="65" max="100" value={opacity} onChange={(event) => changeOpacity(Number(event.target.value))} /></section>}
       {/* Legacy dual-quota view, retained for a possible 5-hour quota restoration:
           <div className="overview"><Ring label={copy.fiveHours} window={usage.primary} period="short" ... /><Ring label={copy.thisWeek} window={usage.secondary} period="weekly" ... /></div> */}
-      {error && !usage ? <div className="error-state"><CircleAlert size={18} /><div><b>{copy.syncUnavailable}</b><span>{error}</span></div><button onClick={refresh}>{copy.retry}</button></div> : usage && <div className="overview overview--weekly"><Ring label={copy.thisWeek} window={usage.weekly} period="weekly" locale={locale} copy={copy} /></div>}
-      <footer className="status-rail"><span className="status-source">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : <i className={`live-dot ${stale ? "live-dot--error" : ""}`} />}{stale ? copy.staleRetry : !loading && copy.synced}</span>{usage?.reset_credits != null && <em className="reset-credit">{copy.resetCredits} {usage.reset_credits}{expiryText(usage.reset_credit_expires_at, locale, copy) ? ` · ${expiryText(usage.reset_credit_expires_at, locale, copy)}` : ""}</em>}<div><button className="icon-button" onClick={refresh} title={copy.refresh}><RefreshCw size={16} className={loading ? "spinning" : ""} /></button><button className="icon-button" onClick={() => setExitConfirmOpen(true)} title={copy.exit} aria-label={copy.exit}><X size={16} /></button></div></footer>
+      {error && !usage ? <div className="error-state"><CircleAlert size={18} /><div><b>{copy.syncUnavailable}</b><span>{error}</span></div><button onClick={() => void refresh(true)}>{copy.retry}</button></div> : usage && <div className="overview overview--weekly"><Ring label={copy.thisWeek} window={usage.weekly} period="weekly" locale={locale} copy={copy} /></div>}
+      <footer className="status-rail"><span className="status-source">{loading ? <LoaderCircle className="spinning sync-spinner" size={15} /> : <i className={`live-dot ${stale ? "live-dot--error" : ""}`} />}{stale ? copy.staleRetry : !loading && copy.synced}</span>{usage?.reset_credits != null && <em className="reset-credit">{copy.resetCredits} {usage.reset_credits}{expiryText(usage.reset_credit_expires_at, locale, copy) ? ` · ${expiryText(usage.reset_credit_expires_at, locale, copy)}` : ""}</em>}<div><button className="icon-button" onClick={() => void refresh(true)} title={copy.refresh}><RefreshCw size={16} className={loading ? "spinning" : ""} /></button><button className="icon-button" onClick={() => setExitConfirmOpen(true)} title={copy.exit} aria-label={copy.exit}><X size={16} /></button></div></footer>
       {exitConfirmOpen && <section className="confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="exit-dialog-title"><div className="confirm-dialog__card"><span className="confirm-dialog__eyebrow">{copy.exitConfirm}</span><strong id="exit-dialog-title">{copy.exitQuestion}</strong><p>{copy.exitBody}</p><div><button className="text-action" onClick={() => setExitConfirmOpen(false)}>{copy.cancel}</button><button className="confirm-dialog__exit" onClick={quit}>{copy.exitApp}</button></div></div></section>}
     </article>;
   if (isDetailWindow) return <main className="detail-hitbox" onPointerEnter={() => void emit("codex-island-detail-hover", true)} onPointerLeave={() => void emit("codex-island-detail-hover", false)}>{detail}</main>;
