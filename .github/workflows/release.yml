@@ -24,7 +24,7 @@ permissions:
 
 jobs:
   desktop:
-    uses: s840207702/cross-platform-release-workflows/.github/workflows/tauri-desktop.yml@v1
+    uses: ./.github/workflows/tauri-desktop.yml
     with:
       build-windows: ${{ github.event_name == 'push' || inputs.build-windows }}
       build-macos: ${{ github.event_name == 'push' || inputs.build-macos }}

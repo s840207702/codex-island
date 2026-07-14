@@ -106,13 +106,13 @@ macOS 的环境、签名与公证说明见 [docs/macos-build.md](docs/macos-buil
 
 ### GitHub Actions 自动发布
 
-仓库已接入跨平台可复用工作流：
+仓库已内置跨平台发布工作流：
 
 - 在 Actions 中手动运行“跨平台构建与发布”，可以按需验证 Windows、macOS、Linux 安装包，不会创建公开 Release。
 - 推送 `v*` 标签后，三个系统会在各自的 GitHub 云端原生环境中构建。
 - 所有平台成功后，安装包会自动进入同一个 GitHub Release。
 
-公共构建逻辑维护在 [cross-platform-release-workflows](https://github.com/s840207702/cross-platform-release-workflows)，本仓库只保留轻量调用入口。
+三平台构建逻辑直接维护在本仓库的 `.github/workflows` 中，公开项目不依赖外部私有工作流即可独立完成发布。
 
 ## 项目结构
 

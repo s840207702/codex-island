@@ -1,0 +1,294 @@
+name: 可复用 Tauri 桌面端构建与发布
+
+on:
+  workflow_call:
+    inputs:
+      node-version:
+        description: Node.js 版本
+        required: false
+        type: string
+        default: "22"
+      working-directory:
+        description: 应用项目根目录
+        required: false
+        type: string
+        default: "."
+      build-windows:
+        description: 构建 Windows NSIS 安装包
+        required: false
+        type: boolean
+        default: true
+      build-macos:
+        description: 构建 macOS Universal 2 DMG
+        required: false
+        type: boolean
+        default: true
+      build-linux:
+        description: 构建 Linux AppImage 和 deb
+        required: false
+        type: boolean
+        default: true
+      publish-release:
+        description: 将安装包上传到当前标签对应的 GitHub Release
+        required: false
+        type: boolean
+        default: false
+      release-draft:
+        description: 构建完成后是否保留为草稿 Release
+        required: false
+        type: boolean
+        default: true
+      release-name:
+        description: Release 标题，留空时使用“仓库名 标签”
+        required: false
+        type: string
+        default: ""
+      release-body:
+        description: Release 说明
+        required: false
+        type: string
+        default: "跨平台安装包由 GitHub Actions 自动构建。"
+      macos-signing-identity:
+        description: 无正式证书时使用 - 进行 ad-hoc 签名
+        required: false
+        type: string
+        default: "-"
+    secrets:
+      APPLE_CERTIFICATE:
+        required: false
+      APPLE_CERTIFICATE_PASSWORD:
+        required: false
+      APPLE_SIGNING_IDENTITY:
+        required: false
+      APPLE_ID:
+        required: false
+      APPLE_PASSWORD:
+        required: false
+      APPLE_TEAM_ID:
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  validate-release-ref:
+    name: 校验发布标签
+    if: inputs.publish-release
+    runs-on: ubuntu-latest
+    steps:
+      - name: 必须通过标签触发 Release
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" != refs/tags/* ]]; then
+            echo "publish-release=true 时必须从 v* Git 标签触发。" >&2
+            exit 1
+          fi
+
+  windows:
+    name: Windows x64 / NSIS
+    if: inputs.build-windows && (!inputs.publish-release || startsWith(github.ref, 'refs/tags/'))
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v6
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.working-directory }}/pnpm-lock.yaml
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: 缓存 Rust 构建产物
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ inputs.working-directory }}/src-tauri -> target
+      - name: 安装项目依赖
+        working-directory: ${{ inputs.working-directory }}
+        run: pnpm install --frozen-lockfile
+      - name: 构建 Windows 安装包
+        if: ${{ !inputs.publish-release }}
+        working-directory: ${{ inputs.working-directory }}
+        run: pnpm tauri build --bundles nsis
+      - name: 保存 Windows 构建产物
+        if: ${{ !inputs.publish-release }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: windows-x64-nsis
+          if-no-files-found: error
+          path: ${{ inputs.working-directory }}/src-tauri/target/release/bundle/nsis/*.exe
+      - name: 构建并上传 Windows Release 资产
+        if: inputs.publish-release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: ${{ inputs.working-directory }}
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ inputs.release-name || format('{0} {1}', github.event.repository.name, github.ref_name) }}
+          releaseBody: ${{ inputs.release-body }}
+          releaseDraft: true
+          prerelease: false
+          args: --bundles nsis
+
+  macos:
+    name: macOS Universal 2 / DMG
+    if: inputs.build-macos && (!inputs.publish-release || startsWith(github.ref, 'refs/tags/'))
+    runs-on: macos-14
+    env:
+      APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || inputs.macos-signing-identity }}
+    steps:
+      - uses: actions/checkout@v7
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v6
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.working-directory }}/pnpm-lock.yaml
+      - name: 安装 Rust 与双架构目标
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+      - name: 缓存 Rust 构建产物
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ inputs.working-directory }}/src-tauri -> target
+      - name: 安装项目依赖
+        working-directory: ${{ inputs.working-directory }}
+        run: pnpm install --frozen-lockfile
+      - name: 检测 Apple 正式签名材料
+        id: apple-signing
+        shell: bash
+        env:
+          CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+        run: |
+          if [[ -n "${CERTIFICATE}" ]]; then
+            echo "available=true" >> "${GITHUB_OUTPUT}"
+          else
+            echo "available=false" >> "${GITHUB_OUTPUT}"
+          fi
+      - name: 构建 macOS Universal 2 安装包
+        if: ${{ !inputs.publish-release }}
+        working-directory: ${{ inputs.working-directory }}
+        run: pnpm tauri build --target universal-apple-darwin --bundles app,dmg
+      - name: 保存 macOS 构建产物
+        if: ${{ !inputs.publish-release }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: macos-universal-dmg
+          if-no-files-found: error
+          path: ${{ inputs.working-directory }}/src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+      - name: 使用 ad-hoc 签名构建并上传 macOS Release 资产
+        if: inputs.publish-release && steps.apple-signing.outputs.available != 'true'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: ${{ inputs.working-directory }}
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ inputs.release-name || format('{0} {1}', github.event.repository.name, github.ref_name) }}
+          releaseBody: ${{ inputs.release-body }}
+          releaseDraft: true
+          prerelease: false
+          args: --target universal-apple-darwin --bundles app,dmg
+      - name: 使用 Developer ID 构建并上传 macOS Release 资产
+        if: inputs.publish-release && steps.apple-signing.outputs.available == 'true'
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: ${{ inputs.working-directory }}
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ inputs.release-name || format('{0} {1}', github.event.repository.name, github.ref_name) }}
+          releaseBody: ${{ inputs.release-body }}
+          releaseDraft: true
+          prerelease: false
+          args: --target universal-apple-darwin --bundles app,dmg
+
+  linux:
+    name: Linux x64 / AppImage + deb
+    if: inputs.build-linux && (!inputs.publish-release || startsWith(github.ref, 'refs/tags/'))
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v7
+      - name: 安装 Linux 系统依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libappindicator3-dev \
+            librsvg2-dev \
+            patchelf
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v6
+      - name: 安装 Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: pnpm
+          cache-dependency-path: ${{ inputs.working-directory }}/pnpm-lock.yaml
+      - name: 安装 Rust
+        uses: dtolnay/rust-toolchain@stable
+      - name: 缓存 Rust 构建产物
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ${{ inputs.working-directory }}/src-tauri -> target
+      - name: 安装项目依赖
+        working-directory: ${{ inputs.working-directory }}
+        run: pnpm install --frozen-lockfile
+      - name: 构建 Linux 安装包
+        if: ${{ !inputs.publish-release }}
+        working-directory: ${{ inputs.working-directory }}
+        run: pnpm tauri build --bundles deb,appimage
+      - name: 保存 Linux 构建产物
+        if: ${{ !inputs.publish-release }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: linux-x64-packages
+          if-no-files-found: error
+          path: |
+            ${{ inputs.working-directory }}/src-tauri/target/release/bundle/deb/*.deb
+            ${{ inputs.working-directory }}/src-tauri/target/release/bundle/appimage/*.AppImage
+      - name: 构建并上传 Linux Release 资产
+        if: inputs.publish-release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: ${{ inputs.working-directory }}
+          tagName: ${{ github.ref_name }}
+          releaseName: ${{ inputs.release-name || format('{0} {1}', github.event.repository.name, github.ref_name) }}
+          releaseBody: ${{ inputs.release-body }}
+          releaseDraft: true
+          prerelease: false
+          args: --bundles deb,appimage
+
+  publish:
+    name: 发布完整 Release
+    needs: [validate-release-ref, windows, macos, linux]
+    if: >-
+      ${{
+        always() &&
+        inputs.publish-release &&
+        !inputs.release-draft &&
+        needs.validate-release-ref.result == 'success' &&
+        (needs.windows.result == 'success' || needs.windows.result == 'skipped') &&
+        (needs.macos.result == 'success' || needs.macos.result == 'skipped') &&
+        (needs.linux.result == 'success' || needs.linux.result == 'skipped') &&
+        (needs.windows.result == 'success' || needs.macos.result == 'success' || needs.linux.result == 'success')
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: 将草稿 Release 正式公开
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest
