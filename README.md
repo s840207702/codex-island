@@ -5,12 +5,26 @@
   <p>复用本机登录态，无需重复登录；轻触胶囊即可查看套餐、剩余额度与重置时间。</p>
 
   <p>
+    <a href="https://github.com/s840207702/codex-island/releases/latest">下载最新版</a> ·
     <a href="#快速开始">快速开始</a> ·
+    <a href="#真实界面">真实界面</a> ·
     <a href="#产品能力">产品能力</a> ·
     <a href="#工作方式">工作方式</a> ·
     <a href="#构建">构建</a>
   </p>
 </div>
+
+## 真实界面
+
+以下截图直接采集自 `/Applications/Codex Island.app` 的真实运行窗口，未使用设计稿或网页模拟。
+
+<p align="center">
+  <img src="docs/screenshots/codex-island-capsule.jpg" alt="Codex Island 常驻额度胶囊" width="236" />
+</p>
+
+<p align="center">
+  <img src="docs/screenshots/codex-island-dashboard.jpg" alt="Codex Island 展开额度面板" width="520" />
+</p>
 
 ## 产品能力
 
@@ -24,6 +38,12 @@
 | **06** | 本地优先 | 登录令牌只在 Rust 后端内存中参与请求，不交给前端或第三方 |
 
 ## 快速开始
+
+### 下载预编译版
+
+- [macOS Universal 2（Apple Silicon + Intel）](https://github.com/s840207702/codex-island/releases/latest)
+
+当前 macOS Release 使用 ad-hoc 签名，尚未经过 Apple Developer ID 公证。首次运行若被 Gatekeeper 拦截，请前往“系统设置 → 隐私与安全性”手动允许。
 
 ### 运行要求
 
