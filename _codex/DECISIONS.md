@@ -13,3 +13,4 @@
 - 2026-07-14：公开仓库的产品截图必须来自 `/Applications/Codex Island.app` 真实运行窗口；`v1.0.3` Release 提供 Universal 2 DMG，并明确标注当前为 ad-hoc 签名、尚未公证。
 - 2026-07-14：跨平台打包工作流直接维护在本仓库中；手动运行只生成 Actions Artifact，推送 `v*` 标签时由 Windows、macOS、Linux 原生 Runner 构建并在全部成功后发布同一个 Release。独立工作流模板仓库保持私有，不作为本公开项目的运行时依赖。
 - 2026-07-14：额度刷新不再依赖 React/WebView 的 `setTimeout`。Windows 与 macOS 共用 Rust 原生后台轮询，成功后 60 秒刷新；失败时从 30 秒开始指数退避且最多 30 分钟，后台按系统时间检查以便睡眠唤醒后及时补刷新。详情面板默认读取共享缓存，但用户点击刷新时必须强制访问服务端。
+- 2026-07-14：包含原生额度刷新修复的版本发布为 `v1.0.4`；本机安装时先删除旧 `/Applications/Codex Island.app` 再复制新包，公开 Release 同时提供 Windows x64、macOS Universal 2、Linux x64 资产并记录 SHA-256。
