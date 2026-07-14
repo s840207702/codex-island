@@ -15,6 +15,10 @@ on:
         description: 构建 Linux AppImage 和 deb
         type: boolean
         default: true
+      publish-release:
+        description: 发布到所选 v* 标签对应的 Release
+        type: boolean
+        default: false
   push:
     tags:
       - "v*"
@@ -29,7 +33,7 @@ jobs:
       build-windows: ${{ github.event_name == 'push' || inputs.build-windows }}
       build-macos: ${{ github.event_name == 'push' || inputs.build-macos }}
       build-linux: ${{ github.event_name == 'push' || inputs.build-linux }}
-      publish-release: ${{ github.event_name == 'push' }}
+      publish-release: ${{ github.event_name == 'push' || inputs.publish-release }}
       release-draft: false
       release-name: Codex Island ${{ github.ref_name }}
       release-body: Windows、macOS 与 Linux 安装包由 GitHub Actions 在各平台原生构建环境中自动生成。
