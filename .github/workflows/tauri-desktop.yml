@@ -33,6 +33,11 @@ on:
         required: false
         type: boolean
         default: false
+      release-tag:
+        description: 手动补发时使用的目标 v* 标签，留空时使用当前标签
+        required: false
+        type: string
+        default: ""
       release-draft:
         description: 构建完成后是否保留为草稿 Release
         required: false
@@ -78,15 +83,17 @@ jobs:
     steps:
       - name: 必须通过标签触发 Release
         shell: bash
+        env:
+          RELEASE_TAG: ${{ inputs.release-tag || github.ref_name }}
         run: |
-          if [[ "${GITHUB_REF}" != refs/tags/* ]]; then
-            echo "publish-release=true 时必须从 v* Git 标签触发。" >&2
+          if [[ "${RELEASE_TAG}" != v* ]]; then
+            echo "publish-release=true 时必须从 v* 标签触发，或显式传入 release-tag。" >&2
             exit 1
           fi
 
   windows:
     name: Windows x64 / NSIS
-    if: inputs.build-windows && (!inputs.publish-release || startsWith(github.ref, 'refs/tags/'))
+    if: inputs.build-windows && (!inputs.publish-release || startsWith(github.ref, 'refs/tags/') || startsWith(inputs.release-tag, 'v'))
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v7
@@ -125,8 +132,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: ${{ inputs.working-directory }}
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ inputs.release-name || format('{0} {1}', github.event.repository.name, github.ref_name) }}
+          tagName: ${{ inputs.release-tag || github.ref_name }}
+          releaseName: ${{ inputs.release-name || format('{0} {1}', github.event.repository.name, inputs.release-tag || github.ref_name) }}
           releaseBody: ${{ inputs.release-body }}
           releaseDraft: true
           prerelease: false
@@ -134,7 +141,7 @@ jobs:
 
   macos:
     name: macOS Universal 2 / DMG
-    if: inputs.build-macos && (!inputs.publish-release || startsWith(github.ref, 'refs/tags/'))
+    if: inputs.build-macos && (!inputs.publish-release || startsWith(github.ref, 'refs/tags/') || startsWith(inputs.release-tag, 'v'))
     runs-on: macos-14
     env:
       APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY || inputs.macos-signing-identity }}
@@ -188,8 +195,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: ${{ inputs.working-directory }}
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ inputs.release-name || format('{0} {1}', github.event.repository.name, github.ref_name) }}
+          tagName: ${{ inputs.release-tag || github.ref_name }}
+          releaseName: ${{ inputs.release-name || format('{0} {1}', github.event.repository.name, inputs.release-tag || github.ref_name) }}
           releaseBody: ${{ inputs.release-body }}
           releaseDraft: true
           prerelease: false
@@ -207,8 +214,8 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         with:
           projectPath: ${{ inputs.working-directory }}
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ inputs.release-name || format('{0} {1}', github.event.repository.name, github.ref_name) }}
+          tagName: ${{ inputs.release-tag || github.ref_name }}
+          releaseName: ${{ inputs.release-name || format('{0} {1}', github.event.repository.name, inputs.release-tag || github.ref_name) }}
           releaseBody: ${{ inputs.release-body }}
           releaseDraft: true
           prerelease: false
@@ -216,7 +223,7 @@ jobs:
 
   linux:
     name: Linux x64 / AppImage + deb
-    if: inputs.build-linux && (!inputs.publish-release || startsWith(github.ref, 'refs/tags/'))
+    if: inputs.build-linux && (!inputs.publish-release || startsWith(github.ref, 'refs/tags/') || startsWith(inputs.release-tag, 'v'))
     runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v7
@@ -265,8 +272,8 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           projectPath: ${{ inputs.working-directory }}
-          tagName: ${{ github.ref_name }}
-          releaseName: ${{ inputs.release-name || format('{0} {1}', github.event.repository.name, github.ref_name) }}
+          tagName: ${{ inputs.release-tag || github.ref_name }}
+          releaseName: ${{ inputs.release-name || format('{0} {1}', github.event.repository.name, inputs.release-tag || github.ref_name) }}
           releaseBody: ${{ inputs.release-body }}
           releaseDraft: true
           prerelease: false
@@ -291,4 +298,5 @@ jobs:
       - name: 将草稿 Release 正式公开
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release edit "${GITHUB_REF_NAME}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest
+          RELEASE_TAG: ${{ inputs.release-tag || github.ref_name }}
+        run: gh release edit "${RELEASE_TAG}" --repo "${GITHUB_REPOSITORY}" --draft=false --latest

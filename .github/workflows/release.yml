@@ -19,6 +19,10 @@ on:
         description: 发布到所选 v* 标签对应的 Release
         type: boolean
         default: false
+      release-tag:
+        description: 手动补发时指定目标 v* 标签
+        type: string
+        default: ""
   push:
     tags:
       - "v*"
@@ -34,7 +38,8 @@ jobs:
       build-macos: ${{ github.event_name == 'push' || inputs.build-macos }}
       build-linux: ${{ github.event_name == 'push' || inputs.build-linux }}
       publish-release: ${{ github.event_name == 'push' || inputs.publish-release }}
+      release-tag: ${{ inputs.release-tag }}
       release-draft: false
-      release-name: Codex Island ${{ github.ref_name }}
+      release-name: Codex Island ${{ inputs.release-tag || github.ref_name }}
       release-body: Windows、macOS 与 Linux 安装包由 GitHub Actions 在各平台原生构建环境中自动生成。
     secrets: inherit
