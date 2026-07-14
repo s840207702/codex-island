@@ -126,6 +126,7 @@ function App() {
   });
   const copy = translations[locale];
   const hasUsage = useRef(false);
+  const pinnedRef = useRef(pinned);
   const collapseTimer = useRef<number | null>(null);
   const shrinkTimer = useRef<number | null>(null);
   const settingsTimer = useRef<number | null>(null);
@@ -194,6 +195,7 @@ function App() {
     return () => { window.removeEventListener("codex-island-language-dom-change", handleDomLanguage); window.removeEventListener("codex-island-panel-shown", handlePanelShown); disposeLanguage?.(); disposeRefresh?.(); disposeUsage?.(); disposeUsageError?.(); };
   }, []);
   useEffect(() => { localStorage.setItem("codex-island-language", locale); document.documentElement.lang = locale; }, [locale]);
+  useEffect(() => { pinnedRef.current = pinned; }, [pinned]);
   useEffect(() => {
     const blockContextMenu = (event: MouseEvent) => event.preventDefault();
     document.addEventListener("contextmenu", blockContextMenu);
@@ -287,13 +289,18 @@ function App() {
   const quit = () => invoke("exit_app").catch(() => undefined);
   const openExternal = (url: string) => { void openUrl(url).catch(() => undefined); };
 
-  const openIsland = () => { if (immersive) return; if (collapseTimer.current) window.clearTimeout(collapseTimer.current); if (shrinkTimer.current) window.clearTimeout(shrinkTimer.current); setClosing(false); void emit("codex-island-detail-closing", false); setExpanded(true); };
+  const openIsland = () => {
+    if (immersive) return;
+    if (collapseTimer.current) { window.clearTimeout(collapseTimer.current); collapseTimer.current = null; }
+    if (shrinkTimer.current) { window.clearTimeout(shrinkTimer.current); shrinkTimer.current = null; }
+    setClosing(false); void emit("codex-island-detail-closing", false); setExpanded(true);
+  };
   const closeIslandLater = () => {
-    if (pinned || collapseTimer.current || shrinkTimer.current) return;
+    if (pinnedRef.current || collapseTimer.current || shrinkTimer.current) return;
     collapseTimer.current = window.setTimeout(() => {
       void invoke<boolean>("is_cursor_over_island").then((overIsland) => {
         collapseTimer.current = null;
-        if (overIsland) return;
+        if (overIsland || pinnedRef.current) return;
         setClosing(true); void emit("codex-island-detail-closing", true);
         shrinkTimer.current = window.setTimeout(() => { setExpanded(false); setClosing(false); shrinkTimer.current = null; }, 165);
       }).catch(() => { collapseTimer.current = null; });

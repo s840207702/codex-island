@@ -501,7 +501,7 @@ dependencies = [
 
 [[package]]
 name = "codex-island"
-version = "1.0.4"
+version = "1.0.5"
 dependencies = [
  "core-foundation",
  "core-graphics",
