@@ -1,7 +1,7 @@
 {
   "name": "codex-island",
   "private": true,
-  "version": "1.0.3",
+  "version": "1.0.4",
   "packageManager": "pnpm@11.7.0",
   "type": "module",
   "scripts": {

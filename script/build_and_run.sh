@@ -22,6 +22,7 @@ if [[ ! -d "$APP_BUNDLE" ]]; then
   exit 1
 fi
 
+/bin/rm -rf "$INSTALLED_APP"
 /usr/bin/ditto "$APP_BUNDLE" "$INSTALLED_APP"
 
 open_app() {
